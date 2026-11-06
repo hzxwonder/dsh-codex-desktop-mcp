@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
-import { installProject } from '../src/setup.js';
+import { installCodex } from '../src/setup.js';
 
 test('MCP disconnect stops an in-flight real DSH process, not just the bridge', { timeout: 30000 }, async (t) => {
   const base = await mkdtemp(join(tmpdir(), 'dsh-mcp-disconnect-'));
@@ -28,8 +28,8 @@ test('MCP disconnect stops an in-flight real DSH process, not just the bridge', 
     await new Promise((resolve) => endpoint.close(resolve));
     await rm(base, { recursive: true, force: true });
   });
-  await installProject({
-    workspaceRoot: root, home: join(base, 'home'),
+  await installCodex({
+    home: join(base, 'home'), codexHome: join(base, 'codex'), skillsHome: join(base, 'skills'),
     apiKey: 'sk-local-disconnect-fixture', baseUrl: `http://127.0.0.1:${endpoint.address().port}`,
   });
   const env = { ...process.env };
@@ -37,13 +37,13 @@ test('MCP disconnect stops an in-flight real DSH process, not just the bridge', 
   delete env.DEEPSEEK_BASE_URL;
   const transport = new StdioClientTransport({
     command: process.execPath,
-    args: [fileURLToPath(new URL('../src/server.js', import.meta.url)), '--workspace-root', root, '--dsh-home', join(base, 'home')],
+    args: [fileURLToPath(new URL('../src/server.js', import.meta.url)), '--dsh-home', join(base, 'home')],
     env,
     stderr: 'pipe',
   });
   transport.stderr.on('data', () => {});
   await client.connect(transport);
-  const pending = client.callTool({ name: 'delegate_to_deepseek', arguments: { task: 'Wait for an answer.', timeout_seconds: 900 } })
+  const pending = client.callTool({ name: 'delegate_to_deepseek', arguments: { project_root: root, task: 'Wait for an answer.', timeout_seconds: 900 } })
     .then(() => 'unexpected response', () => 'connection closed');
   const { closed, apiKey } = await request;
   assert.equal(apiKey, 'sk-local-disconnect-fixture');

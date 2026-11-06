@@ -1,5 +1,5 @@
 import { constants } from 'node:fs';
-import { chmod, lstat, mkdir, open, readFile, realpath, rename, rm } from 'node:fs/promises';
+import { chmod, lstat, mkdir, open, readFile, rename, rm } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -47,7 +47,7 @@ function managedBlock(text, begin, end, body) {
 
 function parseConfig(text) {
   try { return parse(text); }
-  catch { throw new Error('Project .codex/config.toml is not valid TOML. Repair this file before setup.'); }
+  catch { throw new Error('Codex config.toml is not valid TOML. Repair this file before setup.'); }
 }
 
 async function atomicWrite(path, text, mode) {
@@ -60,42 +60,42 @@ async function atomicWrite(path, text, mode) {
   } finally { await rm(temp, { force: true }); }
 }
 
-export async function installProject({ workspaceRoot, home = defaultHome, apiKey, baseUrl }) {
+export async function installCodex({
+  home = defaultHome,
+  codexHome = process.env.CODEX_HOME || join(homedir(), '.codex'),
+  skillsHome = join(homedir(), '.agents', 'skills'),
+  apiKey, baseUrl,
+}) {
   if (process.platform === 'win32') throw new Error('Setup requires macOS or Linux.');
-  const root = await realpath(workspaceRoot);
-  if (!(await lstat(root)).isDirectory()) throw new Error('The project path must be a directory.');
   home = resolve(home);
-  const configPath = join(root, '.codex', 'config.toml');
-  const skillDirectory = join(root, '.agents', 'skills', 'deepseek-worker');
+  codexHome = resolve(codexHome);
+  skillsHome = resolve(skillsHome);
+  const configPath = join(codexHome, 'config.toml');
+  const skillDirectory = join(skillsHome, 'deepseek-worker');
   const skillPath = join(skillDirectory, 'SKILL.md');
-  const agentsPath = join(root, 'AGENTS.md');
   const keyPath = join(home, '.env');
   const providerPath = join(home, 'settings.json');
-  const directories = [join(root, '.codex'), join(root, '.agents'), join(root, '.agents', 'skills'), skillDirectory, home];
+  const directories = [codexHome, dirname(skillsHome), skillsHome, skillDirectory, home];
   for (const directory of directories) await checkDirectory(directory);
-  const [config, agents, skill, credentials, provider, bundledSkill, routing] = await Promise.all([
-    readExisting(configPath), readExisting(agentsPath), readExisting(skillPath), readExisting(keyPath), readExisting(providerPath),
+  const [config, skill, credentials, provider, bundledSkill] = await Promise.all([
+    readExisting(configPath), readExisting(skillPath), readExisting(keyPath), readExisting(providerPath),
     readFile(join(packageRoot, '.agents', 'skills', 'deepseek-worker', 'SKILL.md'), 'utf8'),
-    readFile(join(packageRoot, 'config', 'routing.md'), 'utf8'),
   ]);
   const parsed = parseConfig(config.text);
   if (parsed.mcp_servers?.dsh && !/^# BEGIN dsh-mcp\r?$/m.test(config.text)) {
-    throw new Error('This project already defines mcp_servers.dsh. Preserve or rename that server before setup.');
+    throw new Error('Codex already defines mcp_servers.dsh. Preserve or rename that server before setup.');
   }
   if (skill.mode !== null && skill.text !== bundledSkill) {
-    throw new Error('This project has a different deepseek-worker skill. Preserve or rename that skill before setup.');
+    throw new Error('A different deepseek-worker skill already exists. Preserve or rename that skill before setup.');
   }
-  const command = JSON.stringify(process.execPath);
-  const args = [join(packageRoot, 'src', 'server.js'), '--workspace-root', root, '--dsh-home', home];
+  const args = [join(packageRoot, 'src', 'server.js'), '--dsh-home', home];
   const entry = [
-    '[mcp_servers.dsh]', `command = ${command}`, `args = ${JSON.stringify(args)}`,
+    '[mcp_servers.dsh]', `command = ${JSON.stringify(process.execPath)}`, `args = ${JSON.stringify(args)}`,
     'startup_timeout_sec = 20', 'tool_timeout_sec = 960',
   ].join('\n');
   const nextConfig = managedBlock(config.text, '# BEGIN dsh-mcp', '# END dsh-mcp', entry);
   parseConfig(nextConfig);
-  const nextAgents = managedBlock(agents.text, '<!-- BEGIN dsh-mcp -->', '<!-- END dsh-mcp -->', routing);
-  const stored = parseEnv(credentials.text);
-  const existingKey = stored.DEEPSEEK_API_KEY;
+  const existingKey = parseEnv(credentials.text).DEEPSEEK_API_KEY;
   const providerSettings = parseProviderSettings(provider.text);
   const providerUrl = normalizeBaseUrl(baseUrl ?? providerSettings.baseUrl ?? DEFAULT_BASE_URL);
   const nextProvider = JSON.stringify({ ...providerSettings, baseUrl: providerUrl }, null, 2) + '\n';
@@ -107,7 +107,7 @@ export async function installProject({ workspaceRoot, home = defaultHome, apiKey
     if (parseEnv(nextCredentials).DEEPSEEK_API_KEY !== key) throw new Error('The API key cannot be stored as a dotenv value.');
   }
 
-  // Check all user-file conflicts before creating credentials or project files.
+  // Check all user-file conflicts before creating credentials or Codex files.
   for (const directory of directories) await mkdir(directory, { recursive: true, mode: 0o700 });
   await chmod(home, 0o700);
   if (nextCredentials !== credentials.text) await atomicWrite(keyPath, nextCredentials, 0o600);
@@ -115,13 +115,12 @@ export async function installProject({ workspaceRoot, home = defaultHome, apiKey
   if (nextProvider !== provider.text) await atomicWrite(providerPath, nextProvider, 0o600);
   else await chmod(providerPath, 0o600);
   if (nextConfig !== config.text) await atomicWrite(configPath, nextConfig, config.mode ?? 0o644);
-  if (nextAgents !== agents.text) await atomicWrite(agentsPath, nextAgents, agents.mode ?? 0o644);
   if (skill.mode === null) await atomicWrite(skillPath, bundledSkill, 0o644);
-  return { workspaceRoot: root, home, configPath, skillPath, agentsPath };
+  return { home, configPath, skillPath };
 }
 
 function question(prompt, hidden = false) {
-  if (!process.stdin.isTTY) throw new Error('Use a terminal for prompts, or supply a project path and DEEPSEEK_API_KEY in the environment.');
+  if (!process.stdin.isTTY) throw new Error('Use a terminal for prompts, or supply DEEPSEEK_API_KEY in the environment.');
   const output = hidden ? new Writable({ write(_chunk, _encoding, callback) { callback(); } }) : process.stdout;
   const input = createInterface({ input: process.stdin, output, terminal: true, historySize: 0 });
   if (hidden) process.stdout.write(prompt);
@@ -137,22 +136,18 @@ function question(prompt, hidden = false) {
 }
 
 export async function runSetup() {
-  const { values, positionals } = parseArgs({ allowPositionals: true, options: {
+  const { values } = parseArgs({ options: {
     home: { type: 'string', default: defaultHome },
     terminal: { type: 'boolean', default: false },
     help: { type: 'boolean', default: false },
   } });
   if (values.help) {
-    console.log('Usage: dsh-mcp setup /absolute/project [--home /private/dsh-home] [--terminal]');
+    console.log('Usage: dsh-mcp setup [--home /private/dsh-home] [--terminal]');
     console.log('Setup opens a local form for API Key and Base URL.');
     console.log('Use --terminal for terminal prompts. Secrets never enter command arguments.');
-    console.log('Setup installs project MCP settings, a skill, and automatic delegation rules.');
+    console.log('Setup installs user-wide Codex MCP settings and a skill. Codex supplies each project path at call time.');
     return;
   }
-  if (positionals.length > 1) throw new Error('Provide exactly one project path.');
-  const projectPath = positionals[0] || (await question('Project directory: ')).trim();
-  if (!projectPath) throw new Error('A project path is required.');
-  const workspaceRoot = await realpath(projectPath);
   const home = resolve(values.home);
   await checkDirectory(home);
   const credentials = await readExisting(join(home, '.env'));
@@ -166,11 +161,11 @@ export async function runSetup() {
     if (process.stdin.isTTY && !process.env.DEEPSEEK_BASE_URL) {
       baseUrl = (await question(`Base URL [${baseUrl}]: `)).trim() || baseUrl;
     }
-    result = await installProject({ workspaceRoot, home, apiKey, baseUrl });
+    result = await installCodex({ home, apiKey, baseUrl });
   } else {
     const form = await createSetupForm({
-      workspaceRoot, baseUrl, hasSavedKey: Boolean(stored.DEEPSEEK_API_KEY || apiKey),
-      onSubmit: (input) => installProject({ workspaceRoot, home, apiKey: apiKey || input.apiKey, baseUrl: input.baseUrl }),
+      baseUrl, hasSavedKey: Boolean(stored.DEEPSEEK_API_KEY || apiKey),
+      onSubmit: (input) => installCodex({ home, apiKey: apiKey || input.apiKey, baseUrl: input.baseUrl }),
     });
     const cancel = () => form.close();
     process.once('SIGINT', cancel);
@@ -184,13 +179,11 @@ export async function runSetup() {
       process.removeListener('SIGTERM', cancel);
     }
   }
-  console.log(`Project: ${result.workspaceRoot}`);
   console.log(`MCP configuration: ${result.configPath}`);
   console.log(`Skill: ${result.skillPath}`);
-  console.log(`Delegation rules: ${result.agentsPath}`);
   console.log(`Private API key file: ${join(result.home, '.env')}`);
   console.log(`Private provider settings: ${join(result.home, 'settings.json')}`);
-  console.log('Trust this project in Codex. Start a new Codex session in this project.');
+  console.log('Start a new Codex session. Codex supplies the active project_root with every delegated task.');
   console.log('Use normal task prompts. Codex can select eligible DeepSeek tasks without an explicit tool request.');
 }
 

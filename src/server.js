@@ -10,15 +10,13 @@ import metadata from '../package.json' with { type: 'json' };
 import { normalizeBaseUrl, parseProviderSettings } from './provider.js';
 
 const { values } = parseArgs({ options: {
-  'workspace-root': { type: 'string' },
   'dsh-home': { type: 'string', default: join(homedir(), '.dsh-mcp') },
   help: { type: 'boolean', default: false },
 } });
 if (values.help) {
-  console.log('Usage: node src/server.js --workspace-root /absolute/project [--dsh-home /private/dsh-home]');
+  console.log('Usage: node src/server.js [--dsh-home /private/dsh-home]');
   process.exit(0);
 }
-if (!values['workspace-root']) throw new Error('--workspace-root is required; implicit access to arbitrary directories is disabled');
 if (process.platform === 'win32') throw new Error('This bridge requires POSIX process groups (macOS/Linux)');
 const home = resolve(values['dsh-home']);
 let stored = {};
@@ -31,16 +29,16 @@ const apiKey = process.env.DEEPSEEK_API_KEY ?? stored.DEEPSEEK_API_KEY;
 if (apiKey !== undefined) process.env.DEEPSEEK_API_KEY = apiKey;
 process.env.DEEPSEEK_BASE_URL = normalizeBaseUrl(process.env.DEEPSEEK_BASE_URL ?? provider.baseUrl);
 
-const worker = await createWorker({
-  workspaceRoot: values['workspace-root'], home,
-});
-const server = new McpServer({ name: 'dsh-mcp', version: metadata.version });
+const worker = createWorker({ home });
+const instructions = await readFile(new URL('../config/routing.md', import.meta.url), 'utf8');
+const server = new McpServer({ name: 'dsh-mcp', version: metadata.version }, { instructions });
 server.registerTool('delegate_to_deepseek', {
   title: 'Delegate a bounded task to DeepSeek Harness',
-  description: `Run one bounded task with DeepSeek Flash. The configured workspace root is ${worker.root}. Use read-only for analysis. Select workspace-write explicitly for edits. Supply complete context and acceptance criteria. Pause other writers. Review the actual files and check the result. A completed status does not mean task acceptance.`,
+  description: 'Run one bounded task with DeepSeek Flash. Supply the absolute project_root from active Codex context or explicit user authorization. Use read-only for analysis. Select workspace-write explicitly for edits. Supply complete context and acceptance criteria. Pause other writers. Review the actual files and check the result. A completed status does not mean task acceptance.',
   inputSchema: {
+    project_root: z.string().min(1).describe('Required absolute project directory from Codex context or explicit user authorization. This is the caller directory grant, not an independently verified workspace ACL.'),
     task: z.string().trim().min(1).max(65536).describe('Self-contained task, allowed files, constraints, acceptance criteria and requested verification.'),
-    cwd: z.string().min(1).default('.').describe('Directory relative to the configured workspace root, or an absolute directory within it.'),
+    cwd: z.string().min(1).default('.').describe('Directory relative to project_root, or an absolute directory within project_root.'),
     permission_mode: z.enum(['read-only', 'workspace-write']).default('read-only'),
     session_id: z.string().min(1).max(256).optional().describe('Previously returned DSH session ID for scoped revision in the same cwd.'),
     timeout_seconds: z.number().int().min(1).max(900).default(300),

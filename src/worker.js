@@ -119,21 +119,23 @@ async function gitSnapshot(cwd) {
   return { root, files };
 }
 
-export async function createWorker({ workspaceRoot, home, command = [process.execPath, dsh] }) {
-  const root = await realpath(workspaceRoot);
-  if (!(await stat(root)).isDirectory()) throw new Error('Workspace root must be a directory');
+export function createWorker({ home, command = [process.execPath, dsh] }) {
   let busy = false;
   return {
-    root,
-    async delegate({ task, cwd = '.', permission_mode = 'read-only', session_id, timeout_seconds = 300 }, { signal } = {}) {
-      if (busy) throw new Error('DeepSeek worker is busy; serialize tasks in this workspace');
+    async delegate({ project_root, task, cwd = '.', permission_mode = 'read-only', session_id, timeout_seconds = 300 }, { signal } = {}) {
+      if (busy) throw new Error('DeepSeek worker is busy; serialize tasks across all projects');
       busy = true;
       let before;
       try {
+        if (typeof project_root !== 'string' || !isAbsolute(project_root)) {
+          throw new Error('project_root must be an absolute directory path');
+        }
+        const root = await realpath(project_root);
+        if (!(await stat(root)).isDirectory()) throw new Error('project_root must be a directory');
         const directory = await realpath(resolve(root, cwd));
         const subpath = relative(root, directory);
         if (isAbsolute(subpath) || subpath === '..' || subpath.startsWith(`..${sep}`)) {
-          throw new Error('cwd is outside the configured workspace root');
+          throw new Error('cwd is outside project_root');
         }
         if (!(await stat(directory)).isDirectory()) throw new Error('cwd must be a directory');
         before = await gitSnapshot(directory);
@@ -170,7 +172,7 @@ export async function createWorker({ workspaceRoot, home, command = [process.exe
         return {
           ...run,
           status: result.failure ?? run.status,
-          cwd: directory, model: 'deepseek-flash', permission_mode,
+          project_root: root, cwd: directory, model: 'deepseek-flash', permission_mode,
           exit_code: result.exit_code, signal: result.signal,
           changed_files: changedFiles, git_root: before?.root ?? null,
           change_warning: changeWarning, diagnostics: result.stderr,

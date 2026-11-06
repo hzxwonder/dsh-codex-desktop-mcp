@@ -2,8 +2,8 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.hzxwonder/dsh-mcp",
   "title": "DeepSeek Harness for Codex",
-  "description": "Delegate bounded coding tasks to local DeepSeek Harness within an explicitly granted project.",
-  "version": "0.2.0",
+  "description": "Delegate bounded tasks to local DeepSeek Harness with an explicit project_root in every tool call.",
+  "version": "0.3.0",
   "repository": {
     "url": "https://github.com/hzxwonder/dsh-mcp",
     "source": "github"
@@ -14,20 +14,11 @@
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "@hzxwonder/dsh-mcp",
-      "version": "0.2.0",
+      "version": "0.3.0",
       "runtimeHint": "npx",
       "transport": {
         "type": "stdio"
       },
-      "packageArguments": [
-        {
-          "type": "named",
-          "name": "--workspace-root",
-          "description": "Grant this local server one absolute project directory. This grant is separate from provider credentials. No default directory receives access.",
-          "format": "filepath",
-          "isRequired": true
-        }
-      ],
       "environmentVariables": [
         {
           "name": "DEEPSEEK_API_KEY",

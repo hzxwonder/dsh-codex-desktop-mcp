@@ -33,23 +33,23 @@ The development `node_modules` directory measured about 922 MB.
 Installed size varies with the platform, npm cache, and dependency layout.
 This measurement is not a universal size requirement.
 
-## Install for a project
+## Install once for Codex
+
+Setup installs the MCP server and user skill globally for Codex.
+Switch projects without running setup again.
+Codex supplies the authorized absolute `project_root` in every tool call.
+Installation does not select or permanently bind a project.
 
 ### npm route: pending publication
 
 **The npm package and MCP Registry entry are not published.**
-The metadata and package configuration prepare a future release.
+This source prepares package version `0.3.0`.
 Use the source route below now.
-Use these npm commands only after publication:
+Use this command only after publication:
 
 ```sh
-npx --yes --package @hzxwonder/dsh-mcp@0.2.0 dsh-mcp setup /absolute/project
+npx --yes --package @hzxwonder/dsh-mcp@0.3.0 dsh-mcp setup
 ```
-
-The project path grants an explicit workspace root.
-Select only the project that you want DSH to access.
-Do not use your home directory or `/` as a default grant.
-The project path is separate from the two provider settings.
 
 Setup opens a local browser form with these fields:
 
@@ -63,7 +63,7 @@ It is not a public website or remote MCP server.
 For terminal prompts instead, use:
 
 ```sh
-npx --yes --package @hzxwonder/dsh-mcp@0.2.0 dsh-mcp setup /absolute/project --terminal
+npx --yes --package @hzxwonder/dsh-mcp@0.3.0 dsh-mcp setup --terminal
 ```
 
 The terminal fallback hides the API key.
@@ -98,60 +98,57 @@ Use only a provider that you trust.
    npm ci
    ```
 
-4. Configure your target project.
+4. Configure Codex once.
 
    ```sh
-   npm run setup -- /absolute/project
+   npm run setup
    ```
 
 5. Enter the provider settings in the local browser form.
-6. Open the target project in Codex.
+6. Open your project in Codex.
 7. Trust the project only if you trust its code and configuration.
 8. Start a new Codex session.
 9. Check that Codex lists `delegate_to_deepseek`.
 
 Codex may add a server prefix to the tool name.
-Codex ignores project `.codex/config.toml` until you trust the project.
-Setup does not require manual TOML edits.
-
-Without a project argument, setup prompts for the project path.
+Setup does not require manual TOML edits or a project path.
 Use `npm run setup -- --help` for CLI help.
 Append `--terminal` for terminal prompts.
 Use this command for a different private home:
 
 ```sh
-npm run setup -- /absolute/project --home /absolute/path/to/private/dsh-home
+npm run setup -- --home /absolute/path/to/private/dsh-home
 ```
 
 ### Generated files
 
 Setup uses `~/.dsh-mcp` as the default private home.
-The table uses `<project>` for the absolute target project path.
 
 | Path | Purpose |
 | --- | --- |
-| `~/.dsh-mcp/.env` | Stores the API key outside the project. |
-| `~/.dsh-mcp/settings.json` | Stores the Base URL outside the project. |
-| `<project>/.codex/config.toml` | Registers `[mcp_servers.dsh]` for this project. |
-| `<project>/.agents/skills/deepseek-worker/SKILL.md` | Supplies delegation instructions. |
-| `<project>/AGENTS.md` | Contains a managed delegation section. |
+| `~/.dsh-mcp/.env` | Stores the API key outside projects. |
+| `~/.dsh-mcp/settings.json` | Stores the Base URL outside projects. |
+| `~/.codex/config.toml` | Registers the user-global `[mcp_servers.dsh]` server. |
+| `~/.agents/skills/deepseek-worker/SKILL.md` | Supplies the user skill for delegation. |
 
+If you set `CODEX_HOME`, setup uses `$CODEX_HOME/config.toml` instead.
 A custom `--home` changes the private-home path.
 Setup sets the private directory mode to `0700` and both settings files to `0600`.
-The MCP configuration contains absolute Node, package server, project, and private-home paths.
+The MCP configuration contains absolute Node, package server, and private-home paths.
 It sets `startup_timeout_sec = 20` and `tool_timeout_sec = 960`.
-It contains no API key.
+It contains no API key or project root.
 
 DSH rejects network routing variables in `.env` files.
 The bridge passes the saved Base URL through the process environment.
-Do not add `DEEPSEEK_BASE_URL` to the private `.env` file.
+Do not add `DEEPSEEK_BASE_URL` or other network routing variables to the private `.env` file.
 
 Setup preserves unrelated configuration and existing rules.
-It refuses an existing `dsh` server that it does not own.
+It refuses an existing global `dsh` server that it does not own.
 It reports a conflict if a different skill already exists at the target path.
 It does not overwrite that skill.
 Repeated setup does not duplicate managed content.
-Setup does not edit `~/.codex/AGENTS.md` or `~/.codex/config.toml`.
+Setup does not write project configuration, project skills, or any `AGENTS.md` file.
+It does not rewrite `~/.codex/AGENTS.md`.
 It does not change login, default model, or provider settings.
 
 An npx setup can record absolute package paths inside the npm cache.
@@ -159,6 +156,17 @@ Repeat setup after cache cleanup, installation moves, or changes to the Node exe
 The generated absolute paths do not follow those changes automatically.
 [examples/codex.toml](examples/codex.toml) shows a manual npx configuration.
 Setup remains the recommended installation method.
+
+### Upgrade from project-bound source configuration
+
+An old project `.codex/config.toml` can shadow the new global server.
+Remove only the old managed `dsh` block from that project configuration, if present.
+Preserve unrelated project settings and user data.
+Remove obsolete managed delegation instructions that require a startup-fixed root.
+Preserve unrelated rules in project skills and `AGENTS.md`.
+The installer does not scan or change all repositories.
+It does not automatically migrate old project configuration.
+An existing unowned global `dsh` server causes a safe conflict instead of an overwrite.
 
 ### Client forms and local execution
 
@@ -188,10 +196,10 @@ The runtime accepts the same environment variables from either route.
 
 ## Use the tool
 
-Setup installs instructions for automatic delegation of worthwhile, bounded, low-risk tasks.
-Those instructions guide Codex decisions.
+The user skill and MCP initialization instructions guide automatic delegation of worthwhile, bounded, low-risk tasks.
+They do not require a per-project `AGENTS.md` section.
 They cannot guarantee automatic tool invocation.
-Project and user restrictions take precedence.
+Existing project, user, or global routing rules can prevent automatic delegation.
 Automatic delegation does not disable Codex tool approval prompts.
 
 For an explicit request, tell Codex:
@@ -200,35 +208,31 @@ For an explicit request, tell Codex:
 
 For an initial read-only check, tell Codex:
 
-> Call delegate_to_deepseek with read-only permission. Ask it to reply DSH_MCP_SMOKE_OK without reading files or running tools.
+> Call delegate_to_deepseek with my active project's absolute project_root and read-only permission. Ask it to reply DSH_MCP_SMOKE_OK without reading files or running tools.
 
 The main agent must check the returned status and answer.
 A `completed` status does not prove task acceptance.
 Use a disposable project for the first write task.
 
-### Optional user-wide routing
+### Select the project for each call
 
-Project setup normally supplies the necessary routing rules.
-For user-wide routing, append this snippet to `~/.codex/AGENTS.md`.
-Do not replace unrelated rules.
-If another routing rule conflicts, replace only that routing rule.
+Codex must supply `project_root` in every `delegate_to_deepseek` call.
+Codex selects the exact absolute root from its active project context or explicit user authorization.
+Codex must not guess the root when that context is unavailable.
+The server does not discover the root from `process.cwd()`, HOME, installation paths, or session history.
+Do not use your home directory or `/` as a default grant.
 
-```markdown
-## Optional DeepSeek routing
+The call's `project_root` is the trusted caller's directory grant.
+It is not proof that the directory equals the native Codex workspace.
+The server does not independently check a Codex workspace ACL.
+Do not assume Codex automatically exposes its workspace to this server.
 
-- Preserve the current GPT model, provider, and account.
-- Follow project and user restrictions first.
-- Consider DeepSeek for worthwhile, bounded, low-risk tasks.
-- Check that the MCP workspace root exactly matches the current project root.
-- Do not delegate when you cannot check that match.
-- Exclude secrets, security decisions, architecture, and unknown-root-cause problems.
-- Supply complete context, file scope, constraints, and acceptance criteria.
-- Permit only one writer in the workspace at a time.
-- Review actual changes before acceptance.
-- Treat `completed` as Harness turn completion, not task acceptance.
-- Require the worker to stop and report unresolved questions in its final answer.
-- Resume with the returned session_id and the same cwd after resolving those questions.
-```
+Optional `cwd` selects a directory inside that call's root.
+The same server can handle different projects in successive calls.
+Supply complete context, file scope, constraints, and acceptance criteria.
+Permit only one writer in a workspace at a time.
+Review actual changes before acceptance.
+Require unresolved questions in the worker's final answer instead of live dialogue.
 
 ## Calls and results
 
@@ -238,13 +242,15 @@ It rejects overlapping calls instead of queuing them.
 
 | Parameter | Default | Meaning |
 | --- | --- | --- |
+| `project_root` | Required | Absolute, authorized project directory for this call. |
 | `task` | Required | Complete task, file scope, constraints, and acceptance criteria. Maximum: 65,536 characters. |
-| `cwd` | `.` | Directory within the configured workspace root. |
+| `cwd` | `.` | Directory within this call's canonical `project_root`. |
 | `permission_mode` | `read-only` | Use `workspace-write` explicitly for edits. |
-| `session_id` | None | Resume a returned DSH session with the same `cwd`. |
+| `session_id` | None | Resume a returned DSH session with the same project grant and actual `cwd`. |
 | `timeout_seconds` | `300` | Integer from 1 to 900 seconds. |
 
-The server resolves real paths for `cwd` and rejects escapes through parent paths or symbolic links.
+The server canonicalizes `project_root` and checks that it is a directory for each call.
+It resolves real paths for `cwd` and rejects escapes through parent paths or symbolic links.
 The client tool timeout must exceed the worker timeout and cleanup time.
 
 The call returns only the final answer, status, session identifier, diagnostics, and Git change information.
@@ -253,7 +259,8 @@ It does not support live bidirectional questions, MCP elicitation, or approval r
 
 For unresolved decisions, the worker must stop and report its question in the final answer.
 Codex resolves the question before another tool call.
-Codex then sends the returned `session_id`, the same `cwd`, and explicit continuation instructions.
+Codex then supplies `session_id`, the same project grant, the same actual `cwd`, and explicit continuation instructions.
+Do not assume a session can resume in a different project.
 This sequence is not real-time dialogue.
 
 The server uses `--approval-policy never`.
@@ -267,7 +274,7 @@ The result appears as `structuredContent` and matching JSON text.
 - `status`: `completed`, `failed`, `timed_out`, `cancelled`, or `output_limit`.
 - `session_id`, `answer`, `reason`: the session, final answer, and termination reason.
 - `exit_code`, `signal`, `diagnostics`: process results and the final 32 KiB of standard error.
-- `cwd`, `model`, `permission_mode`: the actual execution settings.
+- `project_root`, `cwd`, `model`, `permission_mode`: the canonical project root and actual execution settings.
 - `changed_files`, `git_root`, `change_warning`: Git change information and its limits.
 
 `completed` requires exit code zero and a DSH final reason of `completed`.
@@ -276,7 +283,7 @@ The main agent must review actual files and applicable check results.
 
 ## Safety and limits
 
-- The workspace root restricts task directories, not all file reads.
+- The per-call project root restricts task directories, not all file reads.
 - DSH can read other accessible files.
 - `read-only` restricts writes but does not isolate reads.
 - `workspace-write` permits writes to `cwd`, required DSH state, and platform-defined temporary directories.
@@ -290,7 +297,7 @@ The main agent must review actual changes.
 
 Keep all writers to the same workspace serial, including Codex, editors, other agents, and other MCP instances.
 The server's serial limit covers only its own instance.
-For parallel tasks, prepare separate worktrees and separate MCP roots first.
+For parallel tasks, prepare separate worktrees and supply their respective per-call project roots.
 Do not change shared Git metadata concurrently.
 
 Git change reports compare status and file fingerprints before and after the task.
@@ -332,6 +339,9 @@ Those checks covered file writes, read-only denial, and session continuation.
 Missing-key checks covered credential failure handling.
 Setup smoke checks covered hidden key input and the generated MCP configuration.
 The generated server loaded its key from the private file during a local DSH call.
+One global MCP connection used real DSH to change files in two separate projects.
+Missing or relative project roots made no provider request.
+Browser and terminal setup checks used isolated user profiles without project binding.
 These checks do not prove real DeepSeek service behavior.
 Online DeepSeek generation and Codex App loading remain unverified.
 
@@ -359,8 +369,8 @@ If the authorized scope changes, update every package reference before publicati
 5. Check the published npm artifact before Registry publication.
 
    ```sh
-   npm view @hzxwonder/dsh-mcp@0.2.0 version
-   npx --yes --package @hzxwonder/dsh-mcp@0.2.0 dsh-mcp --help
+   npm view @hzxwonder/dsh-mcp@0.3.0 version
+   npx --yes --package @hzxwonder/dsh-mcp@0.3.0 dsh-mcp --help
    ```
 
 6. Install the official `mcp-publisher` tool from the Registry quickstart.

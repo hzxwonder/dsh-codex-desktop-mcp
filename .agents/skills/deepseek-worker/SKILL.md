@@ -27,20 +27,31 @@ Project and user restrictions take precedence over this skill.
 2. Inspect existing user changes.
 3. Identify the acceptance criteria and applicable checks.
 4. Check that `delegate_to_deepseek` is available.
-5. Check that its configured workspace root matches the current project root.
-6. Report missing configuration if the tool or root match is unavailable.
-7. Select a `cwd` within that root.
-8. Stop other writers to the same workspace before the call.
-9. Supply the complete task context.
-10. Specify allowed files, prohibited changes, acceptance criteria, and requested checks.
-11. Instruct the worker to stop and report unresolved decisions in its final answer.
-12. Choose `read-only` for analysis.
-13. Choose `workspace-write` only when the task requires edits.
+5. Select the exact absolute project root from your active Codex context or explicit user authorization.
+6. Do not delegate if the tool or authorized project root is unavailable.
+7. Supply that root as `project_root` in every call.
+8. Select a `cwd` within that call's root.
+9. Stop other writers to the same workspace before the call.
+10. Supply the complete task context.
+11. Specify allowed files, prohibited changes, acceptance criteria, and requested checks.
+12. Instruct the worker to stop and report unresolved decisions in its final answer.
+13. Choose `read-only` by default.
+14. Choose `workspace-write` only when the task requires edits.
 
 The client may prefix the tool name with its server name.
 Do not change the Codex provider or silently substitute a direct API call.
 DSH cannot see the main conversation.
 Do not include keys, tokens, or login details in the task.
+
+The user skill and MCP initialization instructions apply across projects.
+Global setup does not require a per-project installation or `AGENTS.md` section.
+Existing project, user, or global rules can prevent automatic delegation.
+Do not infer `project_root` from the server's working directory, HOME, installation path, or session history.
+Do not use HOME or `/` as a default grant.
+The server canonicalizes and checks the supplied project directory for each call.
+The supplied root is your directory grant, not proof of the native Codex workspace.
+The server does not independently check a Codex workspace ACL.
+Do not assume Codex automatically exposes its workspace to this server.
 
 A task's file list is an instruction, not a file-level access control list (ACL).
 Read access is not confined to the workspace.
@@ -49,7 +60,7 @@ Do not expand permissions to bypass a failure.
 
 Only one writer may change the workspace at a time.
 This rule includes the main agent, editors, other agents, and other MCP instances.
-Prepare separate worktrees and separate MCP roots before parallel work.
+Prepare separate worktrees and supply their respective per-call project roots before parallel work.
 Do not change shared Git metadata concurrently.
 
 `timeout_seconds` defaults to 300 and permits at most 900 seconds.
@@ -60,6 +71,7 @@ Example tool arguments:
 
 ```json
 {
+  "project_root": "/absolute/authorized/project",
   "task": "Add boundary tests for parsePort. Change only tests/port.test.ts. Use the existing test framework. Preserve production code and user changes. Cover zero, 65535, negative values, 65536, and non-integers. Run npm test -- tests/port.test.ts. Do not commit or delegate. Stop if a decision remains unresolved. Report questions in the final answer. Report changes, exact check commands, and results. Identify checks that you did not run.",
   "cwd": ".",
   "permission_mode": "workspace-write",
@@ -97,12 +109,13 @@ The `never` approval policy denies approval requests instead of approving them.
 2. Resolve those questions within existing user and project authority.
 3. Request user direction when the decision exceeds that authority.
 4. Send a new call with the returned `session_id`.
-5. Preserve exactly the same `cwd`.
+5. Supply the same authorized `project_root` and preserve exactly the same actual `cwd`.
 6. Supply explicit continuation instructions and the required permission mode.
 
 Wait for the previous call to return before continuation.
 The server waits for process termination before it returns.
 This sequence resumes a session but does not provide real-time dialogue.
+Do not assume a session can resume in a different project.
 
 On failure, inspect partial changes before another call.
 Preserve user changes.

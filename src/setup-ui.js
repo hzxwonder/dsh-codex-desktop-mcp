@@ -6,7 +6,7 @@ const escape = (value) => String(value).replace(/[&<>"']/g, (character) => ({
   '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
 })[character]);
 
-function page({ workspaceRoot, baseUrl, hasSavedKey, csrf, error = '', saved = false }) {
+function page({ baseUrl, hasSavedKey, csrf, error = '', saved = false }) {
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>DeepSeek MCP settings</title><style>
@@ -17,9 +17,9 @@ input{box-sizing:border-box;width:100%;font:inherit;padding:10px;border:1px soli
 small{display:block;color:#4e6071;margin-top:6px}code{overflow-wrap:anywhere}button{font:inherit;background:#165bc4;color:white;border:0;padding:11px 18px;border-radius:6px;margin-top:28px;cursor:pointer}
 .error{color:#a21818}.scope{background:#f1f4f7;padding:12px;border-radius:6px}
 </style></head><body><main><h1>DeepSeek MCP settings</h1>
-${saved ? '<p>Settings saved. You can close this tab.</p><p>Trust this project in Codex. Start a new session in that project.</p>' : `
+${saved ? '<p>Settings saved. You can close this tab.</p><p>Start a new Codex session in any project.</p>' : `
 <p>These settings apply to the local DeepSeek Harness worker.</p>
-<p class="scope">Authorized project<br><code>${escape(workspaceRoot)}</code></p>
+<p class="scope">Codex supplies the project directory for each task. Setup does not bind this server to a project.</p>
 ${error ? `<p class="error" role="alert">${escape(error)}</p>` : ''}
 <form method="post" autocomplete="off">
 <input type="hidden" name="csrf" value="${csrf}">
@@ -32,7 +32,7 @@ ${error ? `<p class="error" role="alert">${escape(error)}</p>` : ''}
 </main></body></html>`;
 }
 
-export async function createSetupForm({ workspaceRoot, baseUrl, hasSavedKey = false, onSubmit }) {
+export async function createSetupForm({ baseUrl, hasSavedKey = false, onSubmit }) {
   const path = `/${randomBytes(32).toString('hex')}`;
   const csrf = randomBytes(32).toString('hex');
   let origin;
@@ -53,7 +53,7 @@ export async function createSetupForm({ workspaceRoot, baseUrl, hasSavedKey = fa
     }
     const render = (options, status = 200) => {
       response.writeHead(status, { 'Content-Type': 'text/html; charset=utf-8' });
-      response.end(page({ workspaceRoot, baseUrl, hasSavedKey, csrf, ...options }));
+      response.end(page({ baseUrl, hasSavedKey, csrf, ...options }));
     };
     if (request.method === 'GET') { render({}); return; }
     if (request.method !== 'POST') { response.writeHead(405).end('Use GET or POST.'); return; }
@@ -78,7 +78,7 @@ export async function createSetupForm({ workspaceRoot, baseUrl, hasSavedKey = fa
       submitting = true;
       const result = await onSubmit({ apiKey: fields.get('apiKey')?.trim() || undefined, baseUrl: fields.get('baseUrl') });
       response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-      response.end(page({ workspaceRoot, baseUrl, hasSavedKey, saved: true }), () => finish(null, result));
+      response.end(page({ baseUrl, hasSavedKey, saved: true }), () => finish(null, result));
     } catch (error) {
       submitting = false;
       render({ error: error.message }, 400);

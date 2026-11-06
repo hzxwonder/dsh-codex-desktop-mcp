@@ -1,19 +1,17 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { mkdtemp, mkdir, readFile, rm, lstat } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, lstat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parseEnv } from 'node:util';
 import { DEFAULT_BASE_URL, normalizeBaseUrl } from '../src/provider.js';
-import { installProject } from '../src/setup.js';
+import { installCodex } from '../src/setup.js';
 import { createSetupForm } from '../src/setup-ui.js';
 
-async function project(t) {
+async function profile(t) {
   const root = await mkdtemp(join(tmpdir(), 'dsh-provider-'));
   t.after(() => rm(root, { recursive: true, force: true }));
-  const workspaceRoot = join(root, 'project');
-  await mkdir(workspaceRoot);
-  return { workspaceRoot, home: join(root, 'private') };
+  return { codexHome: join(root, 'codex'), skillsHome: join(root, 'skills'), home: join(root, 'private') };
 }
 
 async function absent(path) {
@@ -29,22 +27,22 @@ test('provider URLs preserve the Messages root and reject credential or URL inje
 });
 
 test('setup preserves the saved key while changing the private provider endpoint', async (t) => {
-  const paths = await project(t);
+  const paths = await profile(t);
   const apiKey = 'sk-provider-test-not-a-real-key';
-  await installProject({ ...paths, apiKey, baseUrl: 'https://first.example/messages/' });
-  await installProject({ ...paths, apiKey: 'sk-ignored-replacement', baseUrl: 'https://second.example/v1/' });
+  await installCodex({ ...paths, apiKey, baseUrl: 'https://first.example/messages/' });
+  await installCodex({ ...paths, apiKey: 'sk-ignored-replacement', baseUrl: 'https://second.example/v1/' });
   const settings = parseEnv(await readFile(join(paths.home, '.env'), 'utf8'));
   assert.equal(settings.DEEPSEEK_API_KEY, apiKey);
   assert.equal(JSON.parse(await readFile(join(paths.home, 'settings.json'), 'utf8')).baseUrl, 'https://second.example/v1');
   assert.equal(settings.DEEPSEEK_BASE_URL, undefined);
-  assert(!String(await readFile(join(paths.workspaceRoot, '.codex', 'config.toml'))).includes(apiKey));
+  assert(!String(await readFile(join(paths.codexHome, 'config.toml'))).includes(apiKey));
 });
 
 test('the setup form rejects cross-origin writes and invalid endpoints before saving settings', async (t) => {
-  const paths = await project(t);
+  const paths = await profile(t);
   const form = await createSetupForm({
-    workspaceRoot: paths.workspaceRoot, baseUrl: DEFAULT_BASE_URL,
-    onSubmit: (input) => installProject({ ...paths, ...input }),
+    baseUrl: DEFAULT_BASE_URL,
+    onSubmit: (input) => installCodex({ ...paths, ...input }),
   });
   form.completed.catch(() => {});
   t.after(() => form.close());
@@ -56,7 +54,7 @@ test('the setup form rejects cross-origin writes and invalid endpoints before sa
     assert([403, 404].includes(response.status));
     await response.text();
     await absent(paths.home);
-    await absent(join(paths.workspaceRoot, '.codex'));
+    await absent(paths.codexHome);
   }
   const forged = await fetch(form.url, { method: 'POST', headers: { Origin: origin }, body });
   assert.equal(forged.status, 403);
