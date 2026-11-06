@@ -36,7 +36,7 @@ ChatGPT 账号登录、订阅额度和 DSH GUI 登录不能替代 API Key。
 
 ### npm 安装
 
-> 当前 npm 包尚未发布。请先使用下方的源码安装；以下 npx 命令在发布后可用。[npm 包页面](https://www.npmjs.com/package/@hzxwonder/dsh-mcp)
+包页面：[npm · @hzxwonder/dsh-mcp](https://www.npmjs.com/package/@hzxwonder/dsh-mcp)。以下命令固定使用 `0.3.0`，避免自动升级改变执行行为。
 
 ```sh
 npx --yes --package @hzxwonder/dsh-mcp@0.3.0 dsh-mcp setup
@@ -217,6 +217,8 @@ Codex 从当前项目上下文或用户的明确授权中取得路径。服务�
 ## 分发状态
 
 npm 用于下载程序包，MCP Registry 用于发布发现与安装元数据。两者都不负责在云端执行本机任务。
+
+`@hzxwonder/dsh-mcp@0.3.0` 已公开发布到 npm，普通安装用户不需要登录 npm。
 
 官方 MCP Registry 条目尚未登记。npm 发布不会自动让包进入各个客户端的商店。
 

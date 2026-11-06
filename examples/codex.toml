@@ -1,4 +1,3 @@
-# npm publication is pending. Use this example only after publication.
 # Recommended: npx --yes --package @hzxwonder/dsh-mcp@0.3.0 dsh-mcp setup
 # This example belongs in ~/.codex/config.toml or $CODEX_HOME/config.toml.
 # Preserve unrelated sections and current model, provider, and login settings.
