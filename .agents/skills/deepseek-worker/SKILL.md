@@ -38,6 +38,17 @@ Project and user restrictions take precedence over this skill.
 13. Choose `read-only` by default.
 14. Choose `workspace-write` only when the task requires edits.
 
+Select `thinking_effort` explicitly for every call, including session continuation.
+Use only `off`, `low`, `high`, or `max`.
+Choose `low` for mechanical tasks.
+Choose `high` for bounded tasks that require reasoning.
+Choose `off` only after a deliberate decision to disable thinking.
+Choose `max` only when the task justifies its additional cost.
+Do not silently supply a missing value.
+Do not use aliases such as `medium` or `xhigh`.
+This parameter sets DSH `agent-default-model.config.reasoningEffort`, not prompt text.
+Do not rely on the previous session's effort.
+
 The client may prefix the tool name with its server name.
 Do not change the Codex provider or silently substitute a direct API call.
 DSH cannot see the main conversation.
@@ -45,6 +56,9 @@ Do not include keys, tokens, or login details in the task.
 
 The user skill and MCP initialization instructions apply across projects.
 Global setup does not require a per-project installation or `AGENTS.md` section.
+The installer can upgrade an owned, unchanged previous skill template.
+It preserves customized skills and files without a previous-template reference.
+Back up those files and resolve conflicts manually before replacement.
 Existing project, user, or global rules can prevent automatic delegation.
 Do not infer `project_root` from the server's working directory, HOME, installation path, or session history.
 Do not use HOME or `/` as a default grant.
@@ -72,6 +86,7 @@ Example tool arguments:
 ```json
 {
   "project_root": "/absolute/authorized/project",
+  "thinking_effort": "high",
   "task": "Add boundary tests for parsePort. Change only tests/port.test.ts. Use the existing test framework. Preserve production code and user changes. Cover zero, 65535, negative values, 65536, and non-integers. Run npm test -- tests/port.test.ts. Do not commit or delegate. Stop if a decision remains unresolved. Report questions in the final answer. Report changes, exact check commands, and results. Identify checks that you did not run.",
   "cwd": ".",
   "permission_mode": "workspace-write",
@@ -81,17 +96,29 @@ Example tool arguments:
 
 ## Review the result
 
-1. Inspect `status`, `exit_code`, `reason`, `answer`, and `diagnostics`.
-2. Inspect `changed_files` and `change_warning`.
-3. Review actual edits, new files, and existing user changes.
-4. Check the result against each acceptance criterion.
-5. Run applicable acceptance checks when the assignment permits them.
-6. Report worker changes separately from your own review and checks.
+1. Read `answer` and check that `output_source` is `session`.
+2. Read `session_id`, `session_file`, `assistant_seq`, and `turn`.
+3. Inspect `status`, `exit_code`, `reason`, `terminal_reason`, `session_output_error`, `diagnostics`, and `thinking_effort`.
+4. Inspect `changed_files` and `change_warning`.
+5. Review actual edits, new files, and existing user changes.
+6. Check the result against each acceptance criterion.
+7. Run applicable acceptance checks when the assignment permits them.
+8. Report worker changes separately from your own review and checks.
 
 `completed` means that the Harness turn completed, not that the task passed acceptance.
 A successful tool call does not prove that internal tests passed.
 Do not claim that you ran a check merely because the worker reports it.
 Respect existing check evidence unless changes or new findings invalidate it.
+
+After the worker stops, MCP reads its persisted session and checks the session ID and saved physical working directory.
+The answer is the last committed assistant text in the latest durable turn.
+Hidden reasoning, tool calls, and tool results are not the final answer.
+If that turn has no assistant text, `answer` is empty and `assistant_seq` is `null`.
+Never substitute an earlier turn's successful answer.
+Missing, corrupt, unreadable, or mismatched session data causes an explicit failure.
+Do not substitute stdout when the durable read fails.
+Do not accept work from `completed` or stdout alone.
+Do not expose hidden reasoning in your report.
 
 Git reports omit ignored files and complete internal submodule diffs.
 They cannot attribute concurrent writes.
@@ -111,11 +138,13 @@ The `never` approval policy denies approval requests instead of approving them.
 4. Send a new call with the returned `session_id`.
 5. Supply the same authorized `project_root` and preserve exactly the same actual `cwd`.
 6. Supply explicit continuation instructions and the required permission mode.
+7. Select and supply `thinking_effort` again, even when the session already has an effort setting.
 
 Wait for the previous call to return before continuation.
 The server waits for process termination before it returns.
 This sequence resumes a session but does not provide real-time dialogue.
 Do not assume a session can resume in a different project.
+There is no separate tool for reading arbitrary sessions.
 
 On failure, inspect partial changes before another call.
 Preserve user changes.

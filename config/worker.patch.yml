@@ -2,6 +2,7 @@
   config:
     provider: deepseek-official
     model: deepseek-flash
+    reasoningEffort: !!js process.env.DSH_MCP_THINKING_EFFORT
 - id: settings
   disabled: true
 - id: config-editor

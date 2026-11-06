@@ -34,6 +34,114 @@ async function noInstallation(paths, { config = true, skill = true } = {}) {
   if (skill) await absent(paths.skillPath);
 }
 
+async function previousInstallation(t, { source = false } = {}) {
+  const paths = await profile(t);
+  const previousRoot = source
+    ? join(paths.base, 'previous source checkout')
+    : join(paths.base, '.npm', '_npx', 'previous', 'node_modules', '@hzxwonder', 'dsh-mcp');
+  const previousScript = join(previousRoot, 'src', 'server.js');
+  const previousSkillPath = join(previousRoot, '.agents', 'skills', 'deepseek-worker', 'SKILL.md');
+  const oldSkill = '---\nname: deepseek-worker\ndescription: Previous packaged worker instructions.\n---\n\nDelegate a bounded task with the previous contract.\n';
+  const unrelated = 'model = "personal-model"\nmodel_provider = "personal-provider"\n\n[model_providers.personal-provider]\nname = "Personal provider"\nbase_url = "https://personal.example/v1"\n\n[mcp_servers.other]\ncommand = "/keep/other-server"\n';
+  const serverEntry = [
+    '[mcp_servers.dsh]', `command = ${JSON.stringify(process.execPath)}`,
+    `args = ${JSON.stringify([previousScript, '--dsh-home', paths.home])}`,
+    'startup_timeout_sec = 20', 'tool_timeout_sec = 960',
+  ].join('\n');
+  await Promise.all([
+    mkdir(join(previousRoot, 'src'), { recursive: true }),
+    mkdir(join(previousRoot, '.agents', 'skills', 'deepseek-worker'), { recursive: true }),
+    mkdir(join(paths.skillsHome, 'deepseek-worker'), { recursive: true }),
+    mkdir(paths.codexHome), mkdir(paths.home),
+  ]);
+  const packageName = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')).name;
+  const authPath = join(paths.codexHome, 'auth.json');
+  await Promise.all([
+    writeFile(join(previousRoot, 'package.json'), JSON.stringify({ name: packageName, version: '0.3.0' })),
+    writeFile(previousScript, 'export {};\n'),
+    writeFile(previousSkillPath, oldSkill),
+    writeFile(paths.skillPath, oldSkill, { mode: 0o640 }),
+    writeFile(paths.configPath, `${unrelated}\n# BEGIN dsh-mcp\n${serverEntry}\n# END dsh-mcp\n`),
+    writeFile(paths.agentsPath, '# Personal rules\n\nKeep these instructions.\n'),
+    writeFile(authPath, '{"login":"personal-login-preserved"}\n'),
+    writeFile(join(paths.home, '.env'), `UNRELATED=keep\nDEEPSEEK_API_KEY=${apiKey}\n`, { mode: 0o640 }),
+    writeFile(join(paths.home, 'settings.json'), '{"baseUrl":"https://saved.example/v1","custom":{"keep":true}}\n', { mode: 0o640 }),
+  ]);
+  return { ...paths, previousRoot, previousScript, previousSkillPath, oldSkill, unrelated, serverEntry, authPath };
+}
+
+test('a managed previous npm installation upgrades its untouched skill without replacing personal settings or credentials', async (t) => {
+  const paths = await previousInstallation(t);
+  const keyPath = join(paths.home, '.env');
+  const keyBefore = await readFile(keyPath, 'utf8');
+  const agentsBefore = await readFile(paths.agentsPath, 'utf8');
+  const authBefore = await readFile(paths.authPath, 'utf8');
+  await installCodex({ ...paths, apiKey: replacementKey });
+  const configText = await readFile(paths.configPath, 'utf8');
+  assert(configText.includes(paths.unrelated));
+  const server = parse(configText).mcp_servers.dsh;
+  assert.notEqual(server.args[0], paths.previousScript);
+  assert.deepEqual(server.args.slice(1), ['--dsh-home', paths.home]);
+  const upgradedSkill = await readFile(paths.skillPath, 'utf8');
+  assert.notEqual(upgradedSkill, paths.oldSkill);
+  assert.equal((await stat(paths.skillPath)).mode & 0o777, 0o640);
+  assert.equal(await readFile(keyPath, 'utf8'), keyBefore);
+  assert.equal(await readFile(paths.agentsPath, 'utf8'), agentsBefore);
+  assert.equal(await readFile(paths.authPath, 'utf8'), authBefore);
+  assert.deepEqual(JSON.parse(await readFile(join(paths.home, 'settings.json'), 'utf8')), {
+    baseUrl: 'https://saved.example/v1', custom: { keep: true },
+  });
+  await installCodex({ ...paths, apiKey: replacementKey });
+  assert.equal(await readFile(paths.configPath, 'utf8'), configText);
+  assert.equal(await readFile(paths.skillPath, 'utf8'), upgradedSkill);
+});
+
+for (const scenario of [
+  {
+    name: 'a user-edited previously installed skill',
+    change: (paths) => writeFile(paths.skillPath, `${paths.oldSkill}\nMy customized worker rules.\n`),
+  },
+  {
+    name: 'a missing previous npm cache',
+    change: (paths) => rm(paths.previousRoot, { recursive: true }),
+  },
+  {
+    name: 'a source checkout whose previous template no longer exists',
+    source: true,
+    change: (paths) => rm(paths.previousSkillPath),
+  },
+  {
+    name: 'a previous script belonging to a different package',
+    change: (paths) => writeFile(join(paths.previousRoot, 'package.json'), '{"name":"another-package"}\n'),
+  },
+  {
+    name: 'an unrecognizable previous server script reference',
+    change: async (paths) => writeFile(paths.configPath, (await readFile(paths.configPath, 'utf8'))
+      .replace(JSON.stringify(paths.previousScript), JSON.stringify(join(paths.previousRoot, 'other.js')))),
+  },
+  {
+    name: 'an unowned dsh section with an unrelated managed block',
+    change: (paths) => writeFile(paths.configPath,
+      `${paths.unrelated}\n# BEGIN dsh-mcp\n[mcp_servers.marker_only]\ncommand = "/keep/marker-server"\n# END dsh-mcp\n\n${paths.serverEntry}\n`),
+  },
+]) {
+  test(`${scenario.name} preserves all user files and blocks partial setup writes`, async (t) => {
+    const paths = await previousInstallation(t, scenario);
+    await scenario.change(paths);
+    const keyPath = join(paths.home, '.env');
+    await writeFile(keyPath, 'UNRELATED=keep-without-a-saved-api-key\n');
+    const files = [paths.configPath, paths.skillPath, keyPath, join(paths.home, 'settings.json'), paths.agentsPath, paths.authPath];
+    const snapshot = () => Promise.all(files.map(async (path) => ({
+      text: await readFile(path, 'utf8'), mode: (await stat(path)).mode,
+    })));
+    const before = await snapshot();
+    await assert.rejects(installCodex({
+      ...paths, apiKey: replacementKey, baseUrl: 'https://must-not-be-written.example/v1',
+    }), /[Bb]ack up|[Pp]reserve or rename/);
+    assert.deepEqual(await snapshot(), before);
+  });
+}
+
 test('global setup preserves model settings, other servers and user instructions while protecting credentials', async (t) => {
   const paths = await profile(t);
   const unrelated = '# Keep this exact spacing.\nmodel = "chosen-model"  # not a DSH setting\nmodel_provider = "company"\n\n[model_providers.company]\nname = "Company provider"\nbase_url = "https://example.invalid/v1"\n\n[mcp_servers.other]\ncommand = "/usr/bin/other"\nargs = ["--keep", "two words"]\n';

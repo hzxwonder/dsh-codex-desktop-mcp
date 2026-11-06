@@ -38,6 +38,7 @@ server.registerTool('delegate_to_deepseek', {
   inputSchema: {
     project_root: z.string().min(1).describe('Required absolute project directory from Codex context or explicit user authorization. This is the caller directory grant, not an independently verified workspace ACL.'),
     task: z.string().trim().min(1).max(65536).describe('Self-contained task, allowed files, constraints, acceptance criteria and requested verification.'),
+    thinking_effort: z.enum(['off', 'low', 'high', 'max']).describe('Required DSH reasoning effort. Choose explicitly for every call and resume. Use low for mechanical tasks and high for bounded reasoning.'),
     cwd: z.string().min(1).default('.').describe('Directory relative to project_root, or an absolute directory within project_root.'),
     permission_mode: z.enum(['read-only', 'workspace-write']).default('read-only'),
     session_id: z.string().min(1).max(256).optional().describe('Previously returned DSH session ID for scoped revision in the same cwd.'),

@@ -15,9 +15,13 @@ test('MCP disconnect stops an in-flight real DSH process, not just the bridge', 
   await mkdir(root);
   let requestSeen;
   const request = new Promise((resolve) => { requestSeen = resolve; });
-  const endpoint = createServer((req, res) => {
-    req.resume();
-    requestSeen({ closed: new Promise((resolve) => res.once('close', resolve)), apiKey: req.headers['x-api-key'] });
+  const endpoint = createServer(async (req, res) => {
+    let body = '';
+    for await (const chunk of req) body += chunk;
+    requestSeen({
+      closed: new Promise((resolve) => res.once('close', resolve)),
+      apiKey: req.headers['x-api-key'], body: JSON.parse(body),
+    });
     // Keep inference pending until disconnect kills the actual Harness process.
   });
   await new Promise((resolve) => endpoint.listen(0, '127.0.0.1', resolve));
@@ -43,9 +47,11 @@ test('MCP disconnect stops an in-flight real DSH process, not just the bridge', 
   });
   transport.stderr.on('data', () => {});
   await client.connect(transport);
-  const pending = client.callTool({ name: 'delegate_to_deepseek', arguments: { project_root: root, task: 'Wait for an answer.', timeout_seconds: 900 } })
+  const pending = client.callTool({ name: 'delegate_to_deepseek', arguments: { project_root: root, task: 'Wait for an answer.', thinking_effort: 'low', timeout_seconds: 900 } })
     .then(() => 'unexpected response', () => 'connection closed');
-  const { closed, apiKey } = await request;
+  const { closed, apiKey, body } = await request;
+  assert.equal(body.output_config.effort, 'low');
+  assert.equal(body.thinking.type, 'enabled');
   assert.equal(apiKey, 'sk-local-disconnect-fixture');
   await client.close();
   await closed;

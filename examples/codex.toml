@@ -1,12 +1,19 @@
-# Recommended: npx --yes --package @hzxwonder/dsh-mcp@0.3.0 dsh-mcp setup
+# Recommended: npx --yes --package @hzxwonder/dsh-mcp@0.4.0 dsh-mcp setup
 # This example belongs in ~/.codex/config.toml or $CODEX_HOME/config.toml.
 # Preserve unrelated sections and current model, provider, and login settings.
 # Supply the active project's authorized absolute project_root in every tool call.
+# Explicitly select thinking_effort: off, low, high, or max in every call, including resume.
+# Use low for mechanical tasks and high for bounded reasoning.
+# Use off deliberately. Use max only when its additional cost is justified.
+# No effort default or aliases exist. Effort configures DSH reasoningEffort, not prompt text.
+# After worker exit, read answer from output_source="session", plus reason and diagnostics.
+# Inspect session_id, session_file, assistant_seq, and turn before reviewing changes.
+# Never substitute stdout or an earlier turn when the latest durable answer is absent.
 # No project root is selected at server startup.
 # The pinned package installs DSH locally. No global DSH installation is necessary.
 [mcp_servers.dsh]
 command = "npx"
-args = ["--yes", "--package", "@hzxwonder/dsh-mcp@0.3.0", "dsh-mcp"]
+args = ["--yes", "--package", "@hzxwonder/dsh-mcp@0.4.0", "dsh-mcp"]
 # Optional: append "--dsh-home", "/absolute/private/home" to args.
 # Without --dsh-home, the private home is ~/.dsh-mcp.
 startup_timeout_sec = 20

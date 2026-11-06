@@ -5,11 +5,13 @@ import { createReadStream } from 'node:fs';
 import { lstat, readlink, realpath, stat } from 'node:fs/promises';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { readSessionOutput } from './session-output.js';
 
 const exec = promisify(execFile);
 const dsh = fileURLToPath(new URL('./lib/bin.js', import.meta.resolve('@deepseek-ai/dsh/package.json')));
 const patch = fileURLToPath(new URL('../config/worker.patch.yml', import.meta.url));
 const MAX_OUTPUT = 8 * 1024 * 1024;
+const THINKING_EFFORTS = new Set(['off', 'low', 'high', 'max']);
 
 // Wait for termination before releasing the worker; kill the process group, not just dsh.
 export function runProcess(command, { cwd, env, input, timeoutMs, signal }) {
@@ -69,6 +71,7 @@ export function parseRun(stdout, exitCode) {
   let sessionId = null;
   let final = null;
   let error = null;
+  let turn = null;
   for (const line of stdout.split('\n')) {
     if (!line.trim()) continue;
     let event;
@@ -76,12 +79,13 @@ export function parseRun(stdout, exitCode) {
     catch { throw new Error('Invalid DSH NDJSON output; check the pinned Harness version'); }
     if (event?.type === 'session') sessionId = event.sessionId;
     if (event?.type === 'error') error = event;
+    if (event?.type === 'status' && event.phase === 'turn_start') turn = event.turn;
     if (event?.type === 'final') final = event;
   }
   return {
     status: exitCode === 0 && final?.reason?.kind === 'completed' ? 'completed' : 'failed',
     session_id: final?.sessionId ?? sessionId,
-    answer: typeof final?.text === 'string' ? final.text : '',
+    turn,
     reason: final?.reason ?? error ?? null,
   };
 }
@@ -119,10 +123,10 @@ async function gitSnapshot(cwd) {
   return { root, files };
 }
 
-export function createWorker({ home, command = [process.execPath, dsh] }) {
+export function createWorker({ home, command = [process.execPath, dsh], readSession = readSessionOutput }) {
   let busy = false;
   return {
-    async delegate({ project_root, task, cwd = '.', permission_mode = 'read-only', session_id, timeout_seconds = 300 }, { signal } = {}) {
+    async delegate({ project_root, task, thinking_effort, cwd = '.', permission_mode = 'read-only', session_id, timeout_seconds = 300 }, { signal } = {}) {
       if (busy) throw new Error('DeepSeek worker is busy; serialize tasks across all projects');
       busy = true;
       let before;
@@ -138,6 +142,9 @@ export function createWorker({ home, command = [process.execPath, dsh] }) {
           throw new Error('cwd is outside project_root');
         }
         if (!(await stat(directory)).isDirectory()) throw new Error('cwd must be a directory');
+        if (!THINKING_EFFORTS.has(thinking_effort)) {
+          throw new Error('thinking_effort is required and must be off, low, high, or max');
+        }
         before = await gitSnapshot(directory);
         const args = ['headless', '--patch', patch, '--json', '--permission-mode', permission_mode, '--approval-policy', 'never'];
         if (session_id) args.push('--session-id', session_id);
@@ -154,12 +161,26 @@ export function createWorker({ home, command = [process.execPath, dsh] }) {
         ].join('\n');
         const result = await runProcess([...command, ...args], {
           cwd: directory,
-          env: { ...process.env, DSH_HOME: home, DSH_PERMISSION_MODE: permission_mode },
+          env: { ...process.env, DSH_HOME: home, DSH_PERMISSION_MODE: permission_mode, DSH_MCP_THINKING_EFFORT: thinking_effort },
           input: prompt, timeoutMs: timeout_seconds * 1000, signal,
         });
         let run;
         try { run = parseRun(result.stdout, result.exit_code); }
-        catch (error) { run = { status: 'failed', session_id: null, answer: '', reason: error.message }; }
+        catch (error) { run = { status: 'failed', session_id: null, turn: null, reason: error.message }; }
+        let output = null;
+        let sessionOutputError = null;
+        try {
+          if (!run.session_id) throw new Error('The run returned no session ID for its persisted output');
+          const persisted = await readSession({ home, sessionId: run.session_id, cwd: directory });
+          if (run.turn === null || persisted.turn !== run.turn) {
+            throw new Error('The persisted latest turn does not match this run; no current answer is available');
+          }
+          output = persisted;
+          if (run.status === 'completed' && output.terminal_reason?.kind !== 'completed') {
+            sessionOutputError = 'The session turn did not complete durably';
+          }
+        } catch (error) { sessionOutputError = error.message; }
+        if (sessionOutputError && run.status === 'completed') run.status = 'failed';
         let changedFiles = null;
         let changeWarning = before ? null : 'Not a Git repository; changed_files is unavailable.';
         try {
@@ -172,6 +193,13 @@ export function createWorker({ home, command = [process.execPath, dsh] }) {
         return {
           ...run,
           status: result.failure ?? run.status,
+          answer: output?.text ?? '',
+          output_source: output ? 'session' : null,
+          session_file: output?.session_file ?? null,
+          assistant_seq: output?.assistant_seq ?? null,
+          terminal_reason: output?.terminal_reason ?? null,
+          session_output_error: sessionOutputError,
+          thinking_effort,
           project_root: root, cwd: directory, model: 'deepseek-flash', permission_mode,
           exit_code: result.exit_code, signal: result.signal,
           changed_files: changedFiles, git_root: before?.root ?? null,

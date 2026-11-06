@@ -1,9 +1,9 @@
 import { constants } from 'node:fs';
 import { chmod, lstat, mkdir, open, readFile, rename, rm } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { parseArgs, parseEnv } from 'node:util';
+import { isDeepStrictEqual, parseArgs, parseEnv } from 'node:util';
 import { createInterface } from 'node:readline';
 import { Writable } from 'node:stream';
 import { randomUUID } from 'node:crypto';
@@ -39,15 +39,40 @@ function managedBlock(text, begin, end, body) {
     throw new Error(`Repair the incomplete or duplicate managed block: ${begin}`);
   }
   const block = `${begin}\n${body.trimEnd()}\n${end}\n`;
-  if (!starts.length) return text + (text && !text.endsWith('\n') ? '\n' : '') + (text ? '\n' : '') + block;
+  if (!starts.length) {
+    return { text: text + (text && !text.endsWith('\n') ? '\n' : '') + (text ? '\n' : '') + block, previous: null };
+  }
+  const previous = text.slice(starts[0].index + starts[0][0].length, ends[0].index);
   let after = ends[0].index + ends[0][0].length;
   if (text[after] === '\n') after++;
-  return text.slice(0, starts[0].index) + block + text.slice(after);
+  return { text: text.slice(0, starts[0].index) + block + text.slice(after), previous };
 }
 
 function parseConfig(text) {
   try { return parse(text); }
   catch { throw new Error('Codex config.toml is not valid TOML. Repair this file before setup.'); }
+}
+
+async function matchesPreviousBundledSkill(server, skillText) {
+  const script = server?.args?.[0];
+  if (typeof script !== 'string' || !isAbsolute(script)) return false;
+  const previousRoot = dirname(dirname(script));
+  if (script !== join(previousRoot, 'src', 'server.js')) return false;
+  try {
+    const [currentPackage, previousPackage, previousSkill, scriptInfo] = await Promise.all([
+      readExisting(join(packageRoot, 'package.json')),
+      readExisting(join(previousRoot, 'package.json')),
+      readExisting(join(previousRoot, '.agents', 'skills', 'deepseek-worker', 'SKILL.md')),
+      inspect(script),
+    ]);
+    const name = JSON.parse(currentPackage.text).name;
+    return typeof name === 'string' && name.length > 0
+      && JSON.parse(previousPackage.text).name === name
+      && scriptInfo?.isFile() === true
+      && previousSkill.mode !== null && previousSkill.text === skillText;
+  } catch {
+    return false;
+  }
 }
 
 async function atomicWrite(path, text, mode) {
@@ -82,18 +107,22 @@ export async function installCodex({
     readFile(join(packageRoot, '.agents', 'skills', 'deepseek-worker', 'SKILL.md'), 'utf8'),
   ]);
   const parsed = parseConfig(config.text);
-  if (parsed.mcp_servers?.dsh && !/^# BEGIN dsh-mcp\r?$/m.test(config.text)) {
-    throw new Error('Codex already defines mcp_servers.dsh. Preserve or rename that server before setup.');
-  }
-  if (skill.mode !== null && skill.text !== bundledSkill) {
-    throw new Error('A different deepseek-worker skill already exists. Preserve or rename that skill before setup.');
-  }
   const args = [join(packageRoot, 'src', 'server.js'), '--dsh-home', home];
   const entry = [
     '[mcp_servers.dsh]', `command = ${JSON.stringify(process.execPath)}`, `args = ${JSON.stringify(args)}`,
     'startup_timeout_sec = 20', 'tool_timeout_sec = 960',
   ].join('\n');
-  const nextConfig = managedBlock(config.text, '# BEGIN dsh-mcp', '# END dsh-mcp', entry);
+  const { text: nextConfig, previous } = managedBlock(config.text, '# BEGIN dsh-mcp', '# END dsh-mcp', entry);
+  const previousServer = previous === null ? undefined : parseConfig(previous).mcp_servers?.dsh;
+  const ownsServer = parsed.mcp_servers?.dsh && previousServer
+    && isDeepStrictEqual(parsed.mcp_servers.dsh, previousServer);
+  if (parsed.mcp_servers?.dsh && !ownsServer) {
+    throw new Error('Codex already defines mcp_servers.dsh outside this installer’s managed block. Preserve or rename that server before setup.');
+  }
+  if (skill.mode !== null && skill.text !== bundledSkill
+    && !(ownsServer && await matchesPreviousBundledSkill(previousServer, skill.text))) {
+    throw new Error('A different deepseek-worker skill already exists and cannot be safely upgraded. Back up or rename that skill before setup; existing files were not changed.');
+  }
   parseConfig(nextConfig);
   const existingKey = parseEnv(credentials.text).DEEPSEEK_API_KEY;
   const providerSettings = parseProviderSettings(provider.text);
@@ -115,7 +144,7 @@ export async function installCodex({
   if (nextProvider !== provider.text) await atomicWrite(providerPath, nextProvider, 0o600);
   else await chmod(providerPath, 0o600);
   if (nextConfig !== config.text) await atomicWrite(configPath, nextConfig, config.mode ?? 0o644);
-  if (skill.mode === null) await atomicWrite(skillPath, bundledSkill, 0o644);
+  if (skill.text !== bundledSkill || skill.mode === null) await atomicWrite(skillPath, bundledSkill, skill.mode ?? 0o644);
   return { home, configPath, skillPath };
 }
 
