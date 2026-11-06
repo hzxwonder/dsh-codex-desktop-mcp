@@ -193,6 +193,8 @@ npm run setup
 
 开发检查命令为 `npm test`，当前 44 项检查全部通过。另用真实 DSH 和本地 Messages 协议桩核对了四档 effort 的实际请求、同会话续接和压缩 session 最终文本读取；从已发布的 `0.3.0` 配置升级也已验证。真实 DeepSeek 在线推理、Codex App 加载和模型自动选择工具仍需在实际环境中检查。
 
+公开分发验收也已通过：从 npm 安装 `0.4.0`，完成真实 `0.3.0 → 0.4.0` 配置升级，确认密钥和 Base URL 保持不变，并通过安装后的 Harness 核对 effort 与 session 输出链路。验证使用隔离的临时用户配置和本地协议桩，不产生真实模型费用。
+
 ## 分发与参考
 
 包页面：[npm · @hzxwonder/dsh-mcp](https://www.npmjs.com/package/@hzxwonder/dsh-mcp)。普通安装用户不需要登录 npm。
