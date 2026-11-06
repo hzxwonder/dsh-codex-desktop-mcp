@@ -1,0 +1,12 @@
+# Recommended: npm run setup -- /absolute/path/to/your-project
+# This example belongs in /absolute/path/to/your-project/.codex/config.toml.
+# Preserve unrelated sections and current model, provider, and login settings.
+# Replace every absolute path, including the Node executable.
+# Replace /absolute/path/to/private/dsh-home with the absolute path to ~/.dsh-mcp.
+# Setup stores the API key in that private home's .env, not in this file.
+# Codex ignores project configuration until you trust the project.
+[mcp_servers.dsh]
+command = "/absolute/path/to/node"
+args = ["/absolute/path/to/dsh-mcp/src/server.js", "--workspace-root", "/absolute/path/to/your-project", "--dsh-home", "/absolute/path/to/private/dsh-home"]
+startup_timeout_sec = 20
+tool_timeout_sec = 960
