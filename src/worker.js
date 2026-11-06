@@ -7,7 +7,7 @@ import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const exec = promisify(execFile);
-const dsh = fileURLToPath(new URL('../node_modules/@deepseek-ai/dsh/lib/bin.js', import.meta.url));
+const dsh = fileURLToPath(new URL('./lib/bin.js', import.meta.resolve('@deepseek-ai/dsh/package.json')));
 const patch = fileURLToPath(new URL('../config/worker.patch.yml', import.meta.url));
 const MAX_OUTPUT = 8 * 1024 * 1024;
 

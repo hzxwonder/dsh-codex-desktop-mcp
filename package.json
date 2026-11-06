@@ -1,9 +1,30 @@
 {
-  "name": "dsh-mcp",
-  "version": "0.1.0",
-  "private": true,
+  "name": "@hzxwonder/dsh-mcp",
+  "version": "0.2.0",
+  "mcpName": "io.github.hzxwonder/dsh-mcp",
   "type": "module",
   "description": "Delegate bounded Codex tasks to DeepSeek Harness over MCP stdio.",
+  "bin": {
+    "dsh-mcp": "src/cli.js"
+  },
+  "files": [
+    "src/",
+    "config/",
+    ".agents/skills/deepseek-worker/SKILL.md",
+    "server.json",
+    "README.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hzxwonder/dsh-mcp.git"
+  },
+  "homepage": "https://github.com/hzxwonder/dsh-mcp#readme",
+  "bugs": {
+    "url": "https://github.com/hzxwonder/dsh-mcp/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "engines": {
     "node": ">=24.9.0"
   },

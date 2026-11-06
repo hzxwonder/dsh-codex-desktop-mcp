@@ -14,18 +14,71 @@ This release pins DSH `0.2.2-rc.1`, the npm `latest` version checked on 2026-11-
 
 - macOS or Linux.
 - Node.js 24.9.0 or later.
-- npm and Git.
+- npm.
 - Codex with MCP support.
 - A separate DeepSeek API key.
+- Git for the source installation route.
 
 Create an API key at the [DeepSeek API platform](https://platform.deepseek.com/api_keys).
-
-You do not need a global Codex CLI or a global DSH installation.
 DeepSeek API usage has separate billing.
 Your ChatGPT account and DSH GUI login do not replace the API key.
-`package-lock.json` fixes the dependency versions.
+
+npm installs the pinned DSH version automatically as a local dependency.
+An npx installation can store that dependency in the npm cache.
+You do not need a global npm installation of DSH or Codex.
+You do not need a DSH desktop installation or local model weights.
+
+Dependencies require substantial disk space.
+The development `node_modules` directory measured about 922 MB.
+Installed size varies with the platform, npm cache, and dependency layout.
+This measurement is not a universal size requirement.
 
 ## Install for a project
+
+### npm route: pending publication
+
+**The npm package and MCP Registry entry are not published.**
+The metadata and package configuration prepare a future release.
+Use the source route below now.
+Use these npm commands only after publication:
+
+```sh
+npx --yes --package @hzxwonder/dsh-mcp@0.2.0 dsh-mcp setup /absolute/project
+```
+
+The project path grants an explicit workspace root.
+Select only the project that you want DSH to access.
+Do not use your home directory or `/` as a default grant.
+The project path is separate from the two provider settings.
+
+Setup opens a local browser form with these fields:
+
+| Field | Environment variable | Meaning |
+| --- | --- | --- |
+| API Key | `DEEPSEEK_API_KEY` | Required secret. The form uses a password field. |
+| Base URL | `DEEPSEEK_BASE_URL` | Optional. Default: `https://api.deepseek.com/anthropic`. |
+
+The form uses a temporary, token-protected server on `127.0.0.1`.
+It is not a public website or remote MCP server.
+For terminal prompts instead, use:
+
+```sh
+npx --yes --package @hzxwonder/dsh-mcp@0.2.0 dsh-mcp setup /absolute/project --terminal
+```
+
+The terminal fallback hides the API key.
+It also prompts for the Base URL.
+Never put an API key in command arguments, URLs, task text, or project configuration.
+Setup keeps an existing private key unchanged.
+To replace that key, edit the private `.env` file.
+
+DSH uses the Messages protocol at `/v1/messages`.
+A custom Base URL must support that protocol.
+The OpenAI API base URL and chat-completions-only endpoints are not compatible.
+A custom provider receives your API key and task data.
+Use only a provider that you trust.
+
+### Source route: available now
 
 1. Clone the public repository.
 
@@ -39,7 +92,7 @@ Your ChatGPT account and DSH GUI login do not replace the API key.
    cd dsh-mcp
    ```
 
-3. Install the dependencies.
+3. Install the pinned dependencies.
 
    ```sh
    npm ci
@@ -48,10 +101,10 @@ Your ChatGPT account and DSH GUI login do not replace the API key.
 4. Configure your target project.
 
    ```sh
-   npm run setup -- /absolute/path/to/your-project
+   npm run setup -- /absolute/project
    ```
 
-5. Enter your DeepSeek API key at the hidden prompt.
+5. Enter the provider settings in the local browser form.
 6. Open the target project in Codex.
 7. Trust the project only if you trust its code and configuration.
 8. Start a new Codex session.
@@ -63,15 +116,12 @@ Setup does not require manual TOML edits.
 
 Without a project argument, setup prompts for the project path.
 Use `npm run setup -- --help` for CLI help.
+Append `--terminal` for terminal prompts.
 Use this command for a different private home:
 
 ```sh
-npm run setup -- /absolute/path/to/your-project --home /absolute/path/to/private/dsh-home
+npm run setup -- /absolute/project --home /absolute/path/to/private/dsh-home
 ```
-
-Setup skips the key prompt when `DEEPSEEK_API_KEY` or the private home's `.env` supplies a key.
-Do not put keys in shell arguments, project configuration, skills, or task text.
-An existing private-home key takes precedence over a supplied replacement during repeated setup.
 
 ### Generated files
 
@@ -80,16 +130,21 @@ The table uses `<project>` for the absolute target project path.
 
 | Path | Purpose |
 | --- | --- |
-| `~/.dsh-mcp/.env` | Stores `DEEPSEEK_API_KEY` outside the project. |
+| `~/.dsh-mcp/.env` | Stores the API key outside the project. |
+| `~/.dsh-mcp/settings.json` | Stores the Base URL outside the project. |
 | `<project>/.codex/config.toml` | Registers `[mcp_servers.dsh]` for this project. |
 | `<project>/.agents/skills/deepseek-worker/SKILL.md` | Supplies delegation instructions. |
 | `<project>/AGENTS.md` | Contains a managed delegation section. |
 
 A custom `--home` changes the private-home path.
-Setup sets the private directory mode to `0700` and the key file mode to `0600`.
-The MCP configuration contains absolute Node, server, project, and private-home paths.
+Setup sets the private directory mode to `0700` and both settings files to `0600`.
+The MCP configuration contains absolute Node, package server, project, and private-home paths.
 It sets `startup_timeout_sec = 20` and `tool_timeout_sec = 960`.
 It contains no API key.
+
+DSH rejects network routing variables in `.env` files.
+The bridge passes the saved Base URL through the process environment.
+Do not add `DEEPSEEK_BASE_URL` to the private `.env` file.
 
 Setup preserves unrelated configuration and existing rules.
 It refuses an existing `dsh` server that it does not own.
@@ -99,10 +154,37 @@ Repeated setup does not duplicate managed content.
 Setup does not edit `~/.codex/AGENTS.md` or `~/.codex/config.toml`.
 It does not change login, default model, or provider settings.
 
-Repeat setup after you move this installation or change the Node executable path.
+An npx setup can record absolute package paths inside the npm cache.
+Repeat setup after cache cleanup, installation moves, or changes to the Node executable path.
 The generated absolute paths do not follow those changes automatically.
-[examples/codex.toml](examples/codex.toml) shows the project configuration format.
+[examples/codex.toml](examples/codex.toml) shows a manual npx configuration.
 Setup remains the recommended installation method.
+
+### Client forms and local execution
+
+The MCP Registry contains metadata.
+npm supplies the package downloads.
+The local stdio process executes tools and accesses files on your workstation.
+A remote cloud MCP server cannot directly change arbitrary projects on your workstation.
+
+Clients that support `server.json` input metadata can render the two provider fields.
+Support depends on the client.
+Codex supports custom MCP environment configuration.
+An arbitrary Registry-generated Codex popup or one-click storefront installation remains unverified.
+No MCPB desktop bundle forms part of this installation route.
+
+This TOML fragment documents environment variables for clients with their own configuration forms:
+
+```toml
+[mcp_servers.dsh.env]
+DEEPSEEK_API_KEY = "<API_KEY_PLACEHOLDER>"
+DEEPSEEK_BASE_URL = "https://api.deepseek.com/anthropic"
+```
+
+The key value is a documentation placeholder, not a working credential.
+Do not save a real key in project TOML.
+Use setup's private `.env` or the client's protected environment settings.
+The runtime accepts the same environment variables from either route.
 
 ## Use the tool
 
@@ -253,6 +335,53 @@ The generated server loaded its key from the private file during a local DSH cal
 These checks do not prove real DeepSeek service behavior.
 Online DeepSeek generation and Codex App loading remain unverified.
 
+## Publisher procedure
+
+Publication remains pending.
+The publisher needs npm rights for the `@hzxwonder` scope.
+The unscoped `dsh-mcp` name belongs to another package.
+If the authorized scope changes, update every package reference before publication.
+
+1. Authorize the npm account in the browser.
+
+   ```sh
+   npm login
+   ```
+
+2. Check the package contents, pinned dependencies, and `server.json` metadata.
+3. Run the release checks.
+4. Publish the npm artifact with public access.
+
+   ```sh
+   npm publish --access public
+   ```
+
+5. Check the published npm artifact before Registry publication.
+
+   ```sh
+   npm view @hzxwonder/dsh-mcp@0.2.0 version
+   npx --yes --package @hzxwonder/dsh-mcp@0.2.0 dsh-mcp --help
+   ```
+
+6. Install the official `mcp-publisher` tool from the Registry quickstart.
+7. Authenticate with the GitHub account that owns the Registry namespace.
+
+   ```sh
+   mcp-publisher login github
+   ```
+
+8. Publish the metadata only after the npm check succeeds.
+
+   ```sh
+   mcp-publisher publish
+   ```
+
+The Registry identity is `io.github.hzxwonder/dsh-mcp`.
+The Registry metadata must reference the published npm package and version.
+These commands do not create npm scope rights.
+They do not replace browser authorization or GitHub namespace verification.
+Remove the pending notice only after actual publication.
+
 ## Official references
 
 - [DeepSeek Harness repository and safety guidance](https://github.com/deepseek-ai/deepseek-harness)
@@ -261,3 +390,8 @@ Online DeepSeek generation and Codex App loading remain unverified.
 - [Codex MCP configuration](https://developers.openai.com/codex/mcp/)
 - [Codex project configuration](https://developers.openai.com/codex/config-basic/)
 - [Codex skills](https://developers.openai.com/codex/skills/)
+- [Official MCP Registry quickstart](https://modelcontextprotocol.io/registry/quickstart)
+- [Official MCP Registry schema](https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json)
+- [npm npx documentation](https://docs.npmjs.com/cli/v11/commands/npx)
+- [npm login documentation](https://docs.npmjs.com/cli/v11/commands/npm-login)
+- [npm publish documentation](https://docs.npmjs.com/cli/v11/commands/npm-publish)

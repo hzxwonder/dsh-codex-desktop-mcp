@@ -1,12 +1,22 @@
-# Recommended: npm run setup -- /absolute/path/to/your-project
-# This example belongs in /absolute/path/to/your-project/.codex/config.toml.
+# npm publication is pending. Use this example only after publication.
+# Recommended: npx --yes --package @hzxwonder/dsh-mcp@0.2.0 dsh-mcp setup /absolute/project
+# This example belongs in /absolute/project/.codex/config.toml.
 # Preserve unrelated sections and current model, provider, and login settings.
-# Replace every absolute path, including the Node executable.
-# Replace /absolute/path/to/private/dsh-home with the absolute path to ~/.dsh-mcp.
-# Setup stores the API key in that private home's .env, not in this file.
+# Replace /absolute/project with the explicitly authorized project root.
 # Codex ignores project configuration until you trust the project.
+# The pinned package installs DSH locally. No global DSH installation is necessary.
 [mcp_servers.dsh]
-command = "/absolute/path/to/node"
-args = ["/absolute/path/to/dsh-mcp/src/server.js", "--workspace-root", "/absolute/path/to/your-project", "--dsh-home", "/absolute/path/to/private/dsh-home"]
+command = "npx"
+args = ["--yes", "--package", "@hzxwonder/dsh-mcp@0.2.0", "dsh-mcp", "--workspace-root", "/absolute/project"]
+# Optional: append "--dsh-home", "/absolute/private/home" to args.
+# Without --dsh-home, the private home is ~/.dsh-mcp.
 startup_timeout_sec = 20
 tool_timeout_sec = 960
+
+[mcp_servers.dsh.env]
+DEEPSEEK_BASE_URL = "https://api.deepseek.com/anthropic"
+# Documentation placeholder only. Do not put a real API key in project TOML.
+# DEEPSEEK_API_KEY = "<API_KEY_PLACEHOLDER>"
+# Use setup's private .env or the client's protected environment settings.
+# The Base URL must support Messages /v1/messages, not only Chat Completions.
+# A custom provider receives your API key and task data.

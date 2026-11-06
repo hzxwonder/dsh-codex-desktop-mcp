@@ -1,14 +1,17 @@
-import { parseArgs } from 'node:util';
-import { fileURLToPath } from 'node:url';
-import { resolve } from 'node:path';
+import { parseArgs, parseEnv } from 'node:util';
+import { readFile } from 'node:fs/promises';
+import { homedir } from 'node:os';
+import { join, resolve } from 'node:path';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import { createWorker } from './worker.js';
+import metadata from '../package.json' with { type: 'json' };
+import { normalizeBaseUrl, parseProviderSettings } from './provider.js';
 
 const { values } = parseArgs({ options: {
   'workspace-root': { type: 'string' },
-  'dsh-home': { type: 'string', default: fileURLToPath(new URL('../.dsh-mcp/home', import.meta.url)) },
+  'dsh-home': { type: 'string', default: join(homedir(), '.dsh-mcp') },
   help: { type: 'boolean', default: false },
 } });
 if (values.help) {
@@ -17,11 +20,21 @@ if (values.help) {
 }
 if (!values['workspace-root']) throw new Error('--workspace-root is required; implicit access to arbitrary directories is disabled');
 if (process.platform === 'win32') throw new Error('This bridge requires POSIX process groups (macOS/Linux)');
+const home = resolve(values['dsh-home']);
+let stored = {};
+try { stored = parseEnv(await readFile(join(home, '.env'), 'utf8')); }
+catch (error) { if (error.code !== 'ENOENT') throw error; }
+let provider = {};
+try { provider = parseProviderSettings(await readFile(join(home, 'settings.json'), 'utf8')); }
+catch (error) { if (error.code !== 'ENOENT') throw error; }
+const apiKey = process.env.DEEPSEEK_API_KEY ?? stored.DEEPSEEK_API_KEY;
+if (apiKey !== undefined) process.env.DEEPSEEK_API_KEY = apiKey;
+process.env.DEEPSEEK_BASE_URL = normalizeBaseUrl(process.env.DEEPSEEK_BASE_URL ?? provider.baseUrl);
 
 const worker = await createWorker({
-  workspaceRoot: values['workspace-root'], home: resolve(values['dsh-home']),
+  workspaceRoot: values['workspace-root'], home,
 });
-const server = new McpServer({ name: 'dsh-mcp', version: '0.1.0' });
+const server = new McpServer({ name: 'dsh-mcp', version: metadata.version });
 server.registerTool('delegate_to_deepseek', {
   title: 'Delegate a bounded task to DeepSeek Harness',
   description: `Run one bounded task with DeepSeek Flash. The configured workspace root is ${worker.root}. Use read-only for analysis. Select workspace-write explicitly for edits. Supply complete context and acceptance criteria. Pause other writers. Review the actual files and check the result. A completed status does not mean task acceptance.`,

@@ -8,6 +8,8 @@ import { createInterface } from 'node:readline';
 import { Writable } from 'node:stream';
 import { randomUUID } from 'node:crypto';
 import { parse } from 'smol-toml';
+import { DEFAULT_BASE_URL, normalizeBaseUrl, parseProviderSettings } from './provider.js';
+import { createSetupForm, openSetupBrowser } from './setup-ui.js';
 
 const packageRoot = fileURLToPath(new URL('../', import.meta.url));
 const defaultHome = join(homedir(), '.dsh-mcp');
@@ -58,7 +60,7 @@ async function atomicWrite(path, text, mode) {
   } finally { await rm(temp, { force: true }); }
 }
 
-export async function installProject({ workspaceRoot, home = defaultHome, apiKey }) {
+export async function installProject({ workspaceRoot, home = defaultHome, apiKey, baseUrl }) {
   if (process.platform === 'win32') throw new Error('Setup requires macOS or Linux.');
   const root = await realpath(workspaceRoot);
   if (!(await lstat(root)).isDirectory()) throw new Error('The project path must be a directory.');
@@ -68,10 +70,11 @@ export async function installProject({ workspaceRoot, home = defaultHome, apiKey
   const skillPath = join(skillDirectory, 'SKILL.md');
   const agentsPath = join(root, 'AGENTS.md');
   const keyPath = join(home, '.env');
+  const providerPath = join(home, 'settings.json');
   const directories = [join(root, '.codex'), join(root, '.agents'), join(root, '.agents', 'skills'), skillDirectory, home];
   for (const directory of directories) await checkDirectory(directory);
-  const [config, agents, skill, credentials, bundledSkill, routing] = await Promise.all([
-    readExisting(configPath), readExisting(agentsPath), readExisting(skillPath), readExisting(keyPath),
+  const [config, agents, skill, credentials, provider, bundledSkill, routing] = await Promise.all([
+    readExisting(configPath), readExisting(agentsPath), readExisting(skillPath), readExisting(keyPath), readExisting(providerPath),
     readFile(join(packageRoot, '.agents', 'skills', 'deepseek-worker', 'SKILL.md'), 'utf8'),
     readFile(join(packageRoot, 'config', 'routing.md'), 'utf8'),
   ]);
@@ -91,7 +94,11 @@ export async function installProject({ workspaceRoot, home = defaultHome, apiKey
   const nextConfig = managedBlock(config.text, '# BEGIN dsh-mcp', '# END dsh-mcp', entry);
   parseConfig(nextConfig);
   const nextAgents = managedBlock(agents.text, '<!-- BEGIN dsh-mcp -->', '<!-- END dsh-mcp -->', routing);
-  const existingKey = parseEnv(credentials.text).DEEPSEEK_API_KEY;
+  const stored = parseEnv(credentials.text);
+  const existingKey = stored.DEEPSEEK_API_KEY;
+  const providerSettings = parseProviderSettings(provider.text);
+  const providerUrl = normalizeBaseUrl(baseUrl ?? providerSettings.baseUrl ?? DEFAULT_BASE_URL);
+  const nextProvider = JSON.stringify({ ...providerSettings, baseUrl: providerUrl }, null, 2) + '\n';
   let nextCredentials = credentials.text;
   if (!existingKey) {
     const key = apiKey?.trim();
@@ -105,6 +112,8 @@ export async function installProject({ workspaceRoot, home = defaultHome, apiKey
   await chmod(home, 0o700);
   if (nextCredentials !== credentials.text) await atomicWrite(keyPath, nextCredentials, 0o600);
   else await chmod(keyPath, 0o600);
+  if (nextProvider !== provider.text) await atomicWrite(providerPath, nextProvider, 0o600);
+  else await chmod(providerPath, 0o600);
   if (nextConfig !== config.text) await atomicWrite(configPath, nextConfig, config.mode ?? 0o644);
   if (nextAgents !== agents.text) await atomicWrite(agentsPath, nextAgents, agents.mode ?? 0o644);
   if (skill.mode === null) await atomicWrite(skillPath, bundledSkill, 0o644);
@@ -127,36 +136,64 @@ function question(prompt, hidden = false) {
   });
 }
 
-async function main() {
+export async function runSetup() {
   const { values, positionals } = parseArgs({ allowPositionals: true, options: {
-    home: { type: 'string', default: defaultHome }, help: { type: 'boolean', default: false },
+    home: { type: 'string', default: defaultHome },
+    terminal: { type: 'boolean', default: false },
+    help: { type: 'boolean', default: false },
   } });
   if (values.help) {
-    console.log('Usage: npm run setup -- /absolute/project [--home /private/dsh-home]');
+    console.log('Usage: dsh-mcp setup /absolute/project [--home /private/dsh-home] [--terminal]');
+    console.log('Setup opens a local form for API Key and Base URL.');
+    console.log('Use --terminal for terminal prompts. Secrets never enter command arguments.');
     console.log('Setup installs project MCP settings, a skill, and automatic delegation rules.');
-    console.log('Setup stores the API key outside the project and does not change global Codex settings.');
     return;
   }
   if (positionals.length > 1) throw new Error('Provide exactly one project path.');
-  const workspaceRoot = positionals[0] || (await question('Project directory: ')).trim();
-  if (!workspaceRoot) throw new Error('A project path is required.');
+  const projectPath = positionals[0] || (await question('Project directory: ')).trim();
+  if (!projectPath) throw new Error('A project path is required.');
+  const workspaceRoot = await realpath(projectPath);
   const home = resolve(values.home);
   await checkDirectory(home);
   const credentials = await readExisting(join(home, '.env'));
+  const provider = parseProviderSettings((await readExisting(join(home, 'settings.json'))).text);
+  const stored = parseEnv(credentials.text);
   let apiKey = process.env.DEEPSEEK_API_KEY;
-  if (!parseEnv(credentials.text).DEEPSEEK_API_KEY && !apiKey) {
-    apiKey = await question('DeepSeek API key (hidden): ', true);
+  let baseUrl = process.env.DEEPSEEK_BASE_URL ?? provider.baseUrl ?? DEFAULT_BASE_URL;
+  let result;
+  if (values.terminal) {
+    if (!stored.DEEPSEEK_API_KEY && !apiKey) apiKey = await question('DeepSeek API key (hidden): ', true);
+    if (process.stdin.isTTY && !process.env.DEEPSEEK_BASE_URL) {
+      baseUrl = (await question(`Base URL [${baseUrl}]: `)).trim() || baseUrl;
+    }
+    result = await installProject({ workspaceRoot, home, apiKey, baseUrl });
+  } else {
+    const form = await createSetupForm({
+      workspaceRoot, baseUrl, hasSavedKey: Boolean(stored.DEEPSEEK_API_KEY || apiKey),
+      onSubmit: (input) => installProject({ workspaceRoot, home, apiKey: apiKey || input.apiKey, baseUrl: input.baseUrl }),
+    });
+    const cancel = () => form.close();
+    process.once('SIGINT', cancel);
+    process.once('SIGTERM', cancel);
+    try {
+      console.log(`Setup form: ${form.url}`);
+      if (!await openSetupBrowser(form.url)) console.log('Open the local URL in your browser to continue.');
+      result = await form.completed;
+    } finally {
+      process.removeListener('SIGINT', cancel);
+      process.removeListener('SIGTERM', cancel);
+    }
   }
-  const result = await installProject({ workspaceRoot, home, apiKey });
   console.log(`Project: ${result.workspaceRoot}`);
   console.log(`MCP configuration: ${result.configPath}`);
   console.log(`Skill: ${result.skillPath}`);
   console.log(`Delegation rules: ${result.agentsPath}`);
   console.log(`Private API key file: ${join(result.home, '.env')}`);
+  console.log(`Private provider settings: ${join(result.home, 'settings.json')}`);
   console.log('Trust this project in Codex. Start a new Codex session in this project.');
   console.log('Use normal task prompts. Codex can select eligible DeepSeek tasks without an explicit tool request.');
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
-  main().catch((error) => { console.error(`Setup failed: ${error.message}`); process.exitCode = 1; });
+  runSetup().catch((error) => { console.error(`Setup failed: ${error.message}`); process.exitCode = 1; });
 }
