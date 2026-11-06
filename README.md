@@ -1,407 +1,250 @@
 # dsh-mcp
 
-[dsh-mcp](https://github.com/hzxwonder/dsh-mcp) lets Codex delegate bounded tasks through MCP to DeepSeek Harness (DSH).
-DSH uses `deepseek-official` and `deepseek-flash`.
-Codex keeps its current GPT model, provider, and account.
-The main Codex agent reviews the result and owns task acceptance.
+让 Codex 保持当前 GPT 模型、Provider 和账号登录，通过 MCP 把边界明确的任务交给 **DeepSeek Harness + DeepSeek Flash**。Codex 主代理负责拆分任务、审查修改和最终验收。
 
-This project uses the official DSH `headless --json` interface.
-It does not use a third-party bridge or private DSH web interfaces.
-DSH remains a developer preview.
-This release pins DSH `0.2.2-rc.1`, the npm `latest` version checked on 2026-11-06.
+本项目使用官方 `headless --json` 接口，不依赖 DSH Web 内部接口。当前固定使用 `@deepseek-ai/dsh@0.2.2-rc.1`，模型为 `deepseek-flash`。DSH 仍处于 developer preview，升级时需要重新检查兼容性。
 
-## Requirements
+## 运行方式
 
-- macOS or Linux.
-- Node.js 24.9.0 or later.
-- npm.
-- Codex with MCP support.
-- A separate DeepSeek API key.
-- Git for the source installation route.
+```text
+用户电脑上的 Codex
+    ↓ MCP stdio
+用户电脑上的 dsh-mcp
+    ↓ 启动本地子进程
+用户电脑上的 DeepSeek Harness
+    ├─ 读写本次授权的项目
+    └─ 请求 DeepSeek 官方 API 或自定义 Base URL
+```
 
-Create an API key at the [DeepSeek API platform](https://platform.deepseek.com/api_keys).
-DeepSeek API usage has separate billing.
-Your ChatGPT account and DSH GUI login do not replace the API key.
+安装 MCP 时，npm 会自动下载完整的 Harness 依赖。不需要用户另行全局安装 `dsh`，也不会安装桌面 App 或下载模型权重。
 
-npm installs the pinned DSH version automatically as a local dependency.
-An npx installation can store that dependency in the npm cache.
-You do not need a global npm installation of DSH or Codex.
-You do not need a DSH desktop installation or local model weights.
+你使用自己的 DeepSeek API Key，模型费用由对应 API 服务收取。本项目只提供软件，不提供远程任务执行服务。若使用自定义 Base URL，该服务会收到你的密钥和任务数据。
 
-Dependencies require substantial disk space.
-The development `node_modules` directory measured about 922 MB.
-Installed size varies with the platform, npm cache, and dependency layout.
-This measurement is not a universal size requirement.
+依赖的磁盘占用较大。开发环境的 `node_modules` 曾约为 922 MB，具体占用因平台、依赖布局和缓存而异。
 
-## Install once for Codex
+## 环境要求
 
-Setup installs the MCP server and user skill globally for Codex.
-Switch projects without running setup again.
-Codex supplies the authorized absolute `project_root` in every tool call.
-Installation does not select or permanently bind a project.
+- macOS 或 Linux。
+- Node.js **24.9.0 或更高版本**。
+- npm。
+- 支持 MCP 的 Codex 客户端。
+- [DeepSeek API Key](https://platform.deepseek.com/api_keys)，或兼容 Messages API 的服务凭据。
 
-### npm route: pending publication
+ChatGPT 账号登录、订阅额度和 DSH GUI 登录不能替代 API Key。
 
-**The npm package and MCP Registry entry are not published.**
-This source prepares package version `0.3.0`.
-Use the source route below now.
-Use this command only after publication:
+## 快速安装
+
+### npm 安装
+
+> 当前 npm 包尚未发布。请先使用下方的源码安装；以下 npx 命令在发布后可用。[npm 包页面](https://www.npmjs.com/package/@hzxwonder/dsh-mcp)
 
 ```sh
 npx --yes --package @hzxwonder/dsh-mcp@0.3.0 dsh-mcp setup
 ```
 
-Setup opens a local browser form with these fields:
+安装器会打开本机浏览器表单，只填写两个配置项：
 
-| Field | Environment variable | Meaning |
-| --- | --- | --- |
-| API Key | `DEEPSEEK_API_KEY` | Required secret. The form uses a password field. |
-| Base URL | `DEEPSEEK_BASE_URL` | Optional. Default: `https://api.deepseek.com/anthropic`. |
+| 配置项 | 说明 |
+| --- | --- |
+| API Key | 必填，密码输入框，不会进入命令参数或项目配置。 |
+| Base URL | 可选，留空使用 `https://api.deepseek.com/anthropic`。 |
 
-The form uses a temporary, token-protected server on `127.0.0.1`.
-It is not a public website or remote MCP server.
-For terminal prompts instead, use:
+保存后，在 Codex 中新建会话，确认工具列表出现 `delegate_to_deepseek`。客户端可能为工具名添加服务器前缀。
+
+**只安装一次，不需要选择或绑定项目。** 切换项目后不需要重新安装。每次委派时，由 Codex 根据当前上下文传入项目的绝对路径 `project_root`。
+
+没有图形浏览器时，使用终端输入：
 
 ```sh
 npx --yes --package @hzxwonder/dsh-mcp@0.3.0 dsh-mcp setup --terminal
 ```
 
-The terminal fallback hides the API key.
-It also prompts for the Base URL.
-Never put an API key in command arguments, URLs, task text, or project configuration.
-Setup keeps an existing private key unchanged.
-To replace that key, edit the private `.env` file.
+终端不会回显 API Key。不要把真实密钥写进命令参数、URL、任务文本、skill 或项目配置。
 
-DSH uses the Messages protocol at `/v1/messages`.
-A custom Base URL must support that protocol.
-The OpenAI API base URL and chat-completions-only endpoints are not compatible.
-A custom provider receives your API key and task data.
-Use only a provider that you trust.
+### 从源码安装
 
-### Source route: available now
+```sh
+git clone https://github.com/hzxwonder/dsh-mcp.git
+cd dsh-mcp
+npm ci
+npm run setup
+```
 
-1. Clone the public repository.
+终端方式：
 
-   ```sh
-   git clone https://github.com/hzxwonder/dsh-mcp.git
-   ```
+```sh
+npm run setup -- --terminal
+```
 
-2. Enter the installation directory.
-
-   ```sh
-   cd dsh-mcp
-   ```
-
-3. Install the pinned dependencies.
-
-   ```sh
-   npm ci
-   ```
-
-4. Configure Codex once.
-
-   ```sh
-   npm run setup
-   ```
-
-5. Enter the provider settings in the local browser form.
-6. Open your project in Codex.
-7. Trust the project only if you trust its code and configuration.
-8. Start a new Codex session.
-9. Check that Codex lists `delegate_to_deepseek`.
-
-Codex may add a server prefix to the tool name.
-Setup does not require manual TOML edits or a project path.
-Use `npm run setup -- --help` for CLI help.
-Append `--terminal` for terminal prompts.
-Use this command for a different private home:
+自定义私有状态目录：
 
 ```sh
 npm run setup -- --home /absolute/path/to/private/dsh-home
 ```
 
-### Generated files
+安装器会复用已经保存的密钥，不会覆盖它。需要更换密钥时，编辑私有 `.env` 文件，再启动新的 MCP 会话。
 
-Setup uses `~/.dsh-mcp` as the default private home.
+### Base URL 的协议要求
 
-| Path | Purpose |
-| --- | --- |
-| `~/.dsh-mcp/.env` | Stores the API key outside projects. |
-| `~/.dsh-mcp/settings.json` | Stores the Base URL outside projects. |
-| `~/.codex/config.toml` | Registers the user-global `[mcp_servers.dsh]` server. |
-| `~/.agents/skills/deepseek-worker/SKILL.md` | Supplies the user skill for delegation. |
+DSH 使用 **Messages API**，请求路径为 `/v1/messages`。默认根地址是：
 
-If you set `CODEX_HOME`, setup uses `$CODEX_HOME/config.toml` instead.
-A custom `--home` changes the private-home path.
-Setup sets the private directory mode to `0700` and both settings files to `0600`.
-The MCP configuration contains absolute Node, package server, and private-home paths.
-It sets `startup_timeout_sec = 20` and `tool_timeout_sec = 960`.
-It contains no API key or project root.
-
-DSH rejects network routing variables in `.env` files.
-The bridge passes the saved Base URL through the process environment.
-Do not add `DEEPSEEK_BASE_URL` or other network routing variables to the private `.env` file.
-
-Setup preserves unrelated configuration and existing rules.
-It refuses an existing global `dsh` server that it does not own.
-It reports a conflict if a different skill already exists at the target path.
-It does not overwrite that skill.
-Repeated setup does not duplicate managed content.
-Setup does not write project configuration, project skills, or any `AGENTS.md` file.
-It does not rewrite `~/.codex/AGENTS.md`.
-It does not change login, default model, or provider settings.
-
-An npx setup can record absolute package paths inside the npm cache.
-Repeat setup after cache cleanup, installation moves, or changes to the Node executable path.
-The generated absolute paths do not follow those changes automatically.
-[examples/codex.toml](examples/codex.toml) shows a manual npx configuration.
-Setup remains the recommended installation method.
-
-### Upgrade from project-bound source configuration
-
-An old project `.codex/config.toml` can shadow the new global server.
-Remove only the old managed `dsh` block from that project configuration, if present.
-Preserve unrelated project settings and user data.
-Remove obsolete managed delegation instructions that require a startup-fixed root.
-Preserve unrelated rules in project skills and `AGENTS.md`.
-The installer does not scan or change all repositories.
-It does not automatically migrate old project configuration.
-An existing unowned global `dsh` server causes a safe conflict instead of an overwrite.
-
-### Client forms and local execution
-
-The MCP Registry contains metadata.
-npm supplies the package downloads.
-The local stdio process executes tools and accesses files on your workstation.
-A remote cloud MCP server cannot directly change arbitrary projects on your workstation.
-
-Clients that support `server.json` input metadata can render the two provider fields.
-Support depends on the client.
-Codex supports custom MCP environment configuration.
-An arbitrary Registry-generated Codex popup or one-click storefront installation remains unverified.
-No MCPB desktop bundle forms part of this installation route.
-
-This TOML fragment documents environment variables for clients with their own configuration forms:
-
-```toml
-[mcp_servers.dsh.env]
-DEEPSEEK_API_KEY = "<API_KEY_PLACEHOLDER>"
-DEEPSEEK_BASE_URL = "https://api.deepseek.com/anthropic"
+```text
+https://api.deepseek.com/anthropic
 ```
 
-The key value is a documentation placeholder, not a working credential.
-Do not save a real key in project TOML.
-Use setup's private `.env` or the client's protected environment settings.
-The runtime accepts the same environment variables from either route.
+只支持 OpenAI Chat Completions 的代理地址不能直接使用。自定义地址必须支持 Messages 协议，并且不能包含用户名、密码、查询参数或片段。请只使用可信的 API 服务。
 
-## Use the tool
+## 安装器修改哪些文件
 
-The user skill and MCP initialization instructions guide automatic delegation of worthwhile, bounded, low-risk tasks.
-They do not require a per-project `AGENTS.md` section.
-They cannot guarantee automatic tool invocation.
-Existing project, user, or global routing rules can prevent automatic delegation.
-Automatic delegation does not disable Codex tool approval prompts.
+| 文件 | 用途 |
+| --- | --- |
+| `~/.codex/config.toml` | 注册用户级 MCP 服务器 `dsh`。 |
+| `~/.agents/skills/deepseek-worker/SKILL.md` | 安装用户级委派 skill。 |
+| `~/.dsh-mcp/.env` | 保存 API Key。 |
+| `~/.dsh-mcp/settings.json` | 保存 Base URL。 |
 
-For an explicit request, tell Codex:
+如果设置了 `CODEX_HOME`，Codex 配置写入 `$CODEX_HOME/config.toml`。`--home` 只改变 DSH 的私有状态目录。
 
-> Use $deepseek-worker for a bounded documentation task. Limit edits to README.md. Review the result before acceptance.
+私有目录权限为 `0700`，密钥和设置文件权限为 `0600`。MCP 配置中不包含密钥或固定项目路径。
 
-For an initial read-only check, tell Codex:
+DSH 不允许在 `.env` 中设置网络路由变量。**不要把 `DEEPSEEK_BASE_URL` 写进私有 `.env`。** 桥接器会读取 `settings.json`，再通过进程环境把地址传给 DSH。
 
-> Call delegate_to_deepseek with my active project's absolute project_root and read-only permission. Ask it to reply DSH_MCP_SMOKE_OK without reading files or running tools.
+安装器保留其他模型、Provider、MCP 和登录配置，不修改任何 `AGENTS.md`，也不向项目中写配置或 skill。
 
-The main agent must check the returned status and answer.
-A `completed` status does not prove task acceptance.
-Use a disposable project for the first write task.
+已有同名但不归安装器管理的 `dsh` 配置，或已有不同内容的同名 skill 时，安装器会报告冲突，不会覆盖。
 
-### Select the project for each call
+npx 安装可能把服务路径记录为 npm 缓存中的绝对路径。清理缓存、移动安装目录或更换 Node 可执行文件后，需要重新运行 `setup`。
 
-Codex must supply `project_root` in every `delegate_to_deepseek` call.
-Codex selects the exact absolute root from its active project context or explicit user authorization.
-Codex must not guess the root when that context is unavailable.
-The server does not discover the root from `process.cwd()`, HOME, installation paths, or session history.
-Do not use your home directory or `/` as a default grant.
+## 如何让 Codex 自动委派
 
-The call's `project_root` is the trusted caller's directory grant.
-It is not proof that the directory equals the native Codex workspace.
-The server does not independently check a Codex workspace ACL.
-Do not assume Codex automatically exposes its workspace to this server.
+安装器会安装用户级 `deepseek-worker` skill。MCP 初始化时也会提供委派说明，不需要为每个项目追加 `AGENTS.md`。
 
-Optional `cwd` selects a directory inside that call's root.
-The same server can handle different projects in successive calls.
-Supply complete context, file scope, constraints, and acceptance criteria.
-Permit only one writer in a workspace at a time.
-Review actual changes before acceptance.
-Require unresolved questions in the worker's final answer instead of live dialogue.
+普通任务可以直接描述需求。例如：
 
-## Calls and results
+> 为端口解析模块补充边界测试。只修改现有测试文件，不改变生产代码。完成后审查 diff 并运行相关测试。
 
-`delegate_to_deepseek` runs one synchronous task.
-Each server instance permits one active task.
-It rejects overlapping calls instead of queuing them.
+Codex 会根据规则判断是否值得委派：
 
-| Parameter | Default | Meaning |
+- 适合：边界清晰的简单实现、独立测试、文档、样板代码和机械修改。
+- 不适合：架构、安全、鉴权、支付、数据库迁移、根因不明的问题，以及涉及秘密的任务。
+- 极小任务直接完成，避免委派成本超过实现成本。
+
+这些规则指导模型选择，**不保证每次调用**，也不会取消 Codex 的工具批准提示。现有项目或用户规则可能限制委派。
+
+需要明确指定时，可以使用：
+
+> $deepseek-worker 把这个独立测试任务交给 DeepSeek。你负责审查实际修改和最终验收。
+
+## 项目路径由谁提供
+
+安装和启动 MCP 时不配置项目根目录。每次调用必须由 Codex 提供绝对路径：
+
+```json
+{
+  "project_root": "/absolute/path/to/current-project",
+  "task": "补充指定模块的边界测试。只修改对应测试文件，复用现有测试框架，不提交 Git。报告精确验证命令和结果。",
+  "cwd": ".",
+  "permission_mode": "workspace-write",
+  "timeout_seconds": 300
+}
+```
+
+Codex 从当前项目上下文或用户的明确授权中取得路径。服务不会从自身工作目录、HOME、安装目录或之前的调用猜测路径。
+
+缺少路径、使用相对路径、目录不存在或路径不是目录时，调用会失败，不会启动工作器。
+
+`project_root` 是调用方对本次任务的目录授权，**不是服务端独立核实过的 Codex 工作区 ACL**。不要默认授权 HOME 或 `/`。
+
+## 工具参数与返回值
+
+`delegate_to_deepseek` 同步执行一个任务。一个服务器实例最多同时运行一个任务，包括不同项目的任务。重叠调用会立即报错，不会在后台排队。
+
+| 参数 | 默认值 | 说明 |
 | --- | --- | --- |
-| `project_root` | Required | Absolute, authorized project directory for this call. |
-| `task` | Required | Complete task, file scope, constraints, and acceptance criteria. Maximum: 65,536 characters. |
-| `cwd` | `.` | Directory within this call's canonical `project_root`. |
-| `permission_mode` | `read-only` | Use `workspace-write` explicitly for edits. |
-| `session_id` | None | Resume a returned DSH session with the same project grant and actual `cwd`. |
-| `timeout_seconds` | `300` | Integer from 1 to 900 seconds. |
+| `project_root` | 必填 | 本次授权的项目绝对路径。 |
+| `task` | 必填 | 完整目标、上下文、允许修改的文件、限制和验收标准，最多 65536 字符。 |
+| `cwd` | `.` | 相对 `project_root` 的目录，或其中的绝对目录。 |
+| `permission_mode` | `read-only` | 确需编辑时显式选择 `workspace-write`。 |
+| `session_id` | 无 | 续接已有 DSH 会话。 |
+| `timeout_seconds` | `300` | 整数，范围 1–900 秒。 |
 
-The server canonicalizes `project_root` and checks that it is a directory for each call.
-It resolves real paths for `cwd` and rejects escapes through parent paths or symbolic links.
-The client tool timeout must exceed the worker timeout and cleanup time.
+服务会解析真实路径，拒绝 `cwd` 通过 `..` 或符号链接逃出本次根目录。客户端工具超时应长于工作器超时和清理时间，安装器设为 960 秒。
 
-The call returns only the final answer, status, session identifier, diagnostics, and Git change information.
-It does not stream intermediate DSH events to Codex.
-It does not support live bidirectional questions, MCP elicitation, or approval responses.
+结果同时放入 `structuredContent` 和文本 JSON，包含：
 
-For unresolved decisions, the worker must stop and report its question in the final answer.
-Codex resolves the question before another tool call.
-Codex then supplies `session_id`, the same project grant, the same actual `cwd`, and explicit continuation instructions.
-Do not assume a session can resume in a different project.
-This sequence is not real-time dialogue.
+- `status`、`exit_code`、`signal`：执行状态和进程结果。
+- `session_id`、`answer`、`reason`：会话、最终答案和终止原因。
+- `project_root`、`cwd`、`model`、`permission_mode`：实际执行设置。
+- `changed_files`、`git_root`、`change_warning`：Git 文件变化和报告限制。
+- `diagnostics`：最后 32 KiB 标准错误输出。
 
-The server uses `--approval-policy never`.
-DSH denies operations that require approval.
-The policy does not approve them automatically.
-The server offers no full-access mode or extra writable-directory parameter.
-It disables settings edits, plugin management, and recursive delegation tools.
+只有进程退出码为 0，且 DSH 的最终原因是 `completed`，服务才会报告完成。**这只表示代理回合结束，不代表通过任务验收。** 主代理仍需审查实际文件和验证结果。
 
-The result appears as `structuredContent` and matching JSON text.
+## DeepSeek 需要 Codex 决策时
 
-- `status`: `completed`, `failed`, `timed_out`, `cancelled`, or `output_limit`.
-- `session_id`, `answer`, `reason`: the session, final answer, and termination reason.
-- `exit_code`, `signal`, `diagnostics`: process results and the final 32 KiB of standard error.
-- `project_root`, `cwd`, `model`, `permission_mode`: the canonical project root and actual execution settings.
-- `changed_files`, `git_root`, `change_warning`: Git change information and its limits.
+当前调用只返回最终结果，不实时转发 DSH 的中间事件，也不支持调用途中的双向问答或批准响应。
 
-`completed` requires exit code zero and a DSH final reason of `completed`.
-It means that the Harness turn completed, not that the task met its acceptance criteria.
-The main agent must review actual files and applicable check results.
+协作流程为：
 
-## Safety and limits
+1. DeepSeek 停止任务，在最终答案中说明待决问题。
+2. Codex 在已有授权内决策，必要时向用户询问。
+3. Codex 用返回的 `session_id`、相同 `project_root` 和相同实际 `cwd` 发起续接。
 
-- The per-call project root restricts task directories, not all file reads.
-- DSH can read other accessible files.
-- `read-only` restricts writes but does not isolate reads.
-- `workspace-write` permits writes to `cwd`, required DSH state, and platform-defined temporary directories.
-- Shell tools do not provide a container for malicious code.
-- Use this tool only with trusted projects.
-- Use a real container or a separate account when you need stronger isolation.
+这是多轮会话续接，不是实时对话。`--approval-policy never` 会拒绝需要人工批准的操作，不是自动批准。
 
-The file list in `task` is an instruction, not a file-level access control list (ACL).
-The server does not prevent or undo edits outside that list.
-The main agent must review actual changes.
+## 安全边界与限制
 
-Keep all writers to the same workspace serial, including Codex, editors, other agents, and other MCP instances.
-The server's serial limit covers only its own instance.
-For parallel tasks, prepare separate worktrees and supply their respective per-call project roots.
-Do not change shared Git metadata concurrently.
+- 工作区限制不是读取隔离。DSH 仍能读取其他可访问文件，shell 工具也不是恶意代码容器。
+- `workspace-write` 可以写入 `cwd`、必要的 DSH 状态和平台定义的临时目录。敏感任务应使用容器或独立账户。
+- 任务中的文件名单是行为约束，不是强制文件级 ACL。服务不会自动撤销越界编辑。
+- 同一工作区不能有并发写入者，包括主代理、编辑器、其他代理和其他 MCP 实例。需要并发时，先准备独立 worktree。
+- Git 变化报告比较任务前后的状态和内容指纹，不包含忽略文件，也不提供完整的子模块内部 diff。它不能归因外部并发修改。
+- `changed_files: null` 表示报告不可用，不表示没有修改。始终检查 `change_warning` 和实际 diff。
+- 超时、取消、客户端断开或进程终止时，服务清理 POSIX 进程组。自行脱离该组的后代进程不在保证内。
+- 服务会等待工作器退出，但退出不是回滚。失败或中断后可能留下部分修改。
+- NDJSON 标准输出超过 8 MiB 时，服务终止任务并报告 `output_limit`，不会截断后冒报成功。
+- DSH 会持久化会话和任务内容。请按敏感数据保护私有目录与诊断输出，不要在任务中放入秘密。
+- 服务不自动提交、发布、合并、回滚或创建 worktree，也不提供 full-access 参数。
 
-Git change reports compare status and file fingerprints before and after the task.
-Paths are relative to `git_root`.
-Reports can detect further edits to already changed files.
-Reports exclude ignored files and do not provide complete internal submodule diffs.
-They cannot attribute changes from concurrent writers.
-A missing repository or a failed Git check produces a warning.
-A `null` change report does not mean that no files changed.
-The report supports review but does not replace an audit.
+## 从旧的项目绑定配置升级
 
-Timeout, cancellation, client disconnection, or termination triggers POSIX process-group cleanup.
-The server first sends SIGTERM and then uses SIGKILL if necessary.
-It waits for exit before returning.
-Normal exit also triggers cleanup of descendants in the same process group.
-Processes that detach from that group escape this guarantee.
-Partial writes can remain after any failure or interruption.
-The server does not roll back, commit, merge, or create worktrees.
+旧项目中的 `.codex/config.toml` 可能覆盖新全局配置。只移除其中旧的受管理 `dsh` 区块，保留其他配置。
 
-The server stops tasks whose total NDJSON standard output exceeds 8 MiB.
-It returns `output_limit` instead of reporting success from truncated output.
+同时检查旧项目 skill 和 `AGENTS.md` 中固定安装目录的委派规则，只移除过时的受管理部分。安装器不会扫描或批量修改所有仓库。
 
-DSH stores sessions and task content persistently in its private home.
-Treat that directory and diagnostic output as sensitive data.
-Do not include secrets in tasks.
-The MCP server reserves standard output for protocol messages.
+已有手动配置的全局 `dsh` 服务器时，需要先处理同名冲突，再运行安装器。
 
-DSH remains a developer preview.
-Review official CLI and NDJSON contracts before dependency upgrades.
-Do not replace fixed versions with unversioned `latest` dependencies.
+## 分发状态
 
-## Verification scope
+npm 用于下载程序包，MCP Registry 用于发布发现与安装元数据。两者都不负责在云端执行本机任务。
 
-Run the automated checks with `npm test`.
-The repository uses local subprocesses and local HTTP fixtures for regression checks.
+官方 MCP Registry 条目尚未登记。npm 发布不会自动让包进入各个客户端的商店。
 
-Real DSH integration checks used a local Messages SSE fixture.
-Those checks covered file writes, read-only denial, and session continuation.
-Missing-key checks covered credential failure handling.
-Setup smoke checks covered hidden key input and the generated MCP configuration.
-The generated server loaded its key from the private file during a local DSH call.
-One global MCP connection used real DSH to change files in two separate projects.
-Missing or relative project roots made no provider request.
-Browser and terminal setup checks used isolated user profiles without project binding.
-These checks do not prove real DeepSeek service behavior.
-Online DeepSeek generation and Codex App loading remain unverified.
+当前仓库提供 `server.json`，包含两个 Provider 环境配置项。支持该元数据的客户端可以生成输入界面，但不能据此保证 Codex 原生商店会自动显示相同填写框。
 
-## Publisher procedure
+注册信息中的 `isSecret` 是给客户端的处理提示，不等于所有客户端都会加密保存配置。推荐使用安装器的私有设置文件，或客户端提供的受保护凭据存储。
 
-Publication remains pending.
-The publisher needs npm rights for the `@hzxwonder` scope.
-The unscoped `dsh-mcp` name belongs to another package.
-If the authorized scope changes, update every package reference before publication.
+手动配置示例见 [examples/codex.toml](examples/codex.toml)。不要把真实密钥提交到项目 TOML。
 
-1. Authorize the npm account in the browser.
+## 验证
 
-   ```sh
-   npm login
-   ```
+```sh
+npm test
+```
 
-2. Check the package contents, pinned dependencies, and `server.json` metadata.
-3. Run the release checks.
-4. Publish the npm artifact with public access.
+现有检查覆盖全局配置保留、凭据权限、重复安装、冲突保护、表单安全、路径校验、跨项目执行、超时与进程清理。
 
-   ```sh
-   npm publish --access public
-   ```
+使用真实 DSH 与本地 Messages SSE 协议桩验证了文件写入、只读拒写、会话续接和私有设置加载。同一个全局 MCP 连接成功修改了两个独立项目。缺失或相对项目路径不会发起模型请求。
 
-5. Check the published npm artifact before Registry publication.
+浏览器和终端安装验证使用隔离的临时用户配置，没有修改真实用户的全局配置。
 
-   ```sh
-   npm view @hzxwonder/dsh-mcp@0.3.0 version
-   npx --yes --package @hzxwonder/dsh-mcp@0.3.0 dsh-mcp --help
-   ```
+本地协议验证不等于真实 DeepSeek 在线生成验证。Codex App 内加载和模型自动选择工具仍需在实际客户端中检查。
 
-6. Install the official `mcp-publisher` tool from the Registry quickstart.
-7. Authenticate with the GitHub account that owns the Registry namespace.
+## 官方参考
 
-   ```sh
-   mcp-publisher login github
-   ```
-
-8. Publish the metadata only after the npm check succeeds.
-
-   ```sh
-   mcp-publisher publish
-   ```
-
-The Registry identity is `io.github.hzxwonder/dsh-mcp`.
-The Registry metadata must reference the published npm package and version.
-These commands do not create npm scope rights.
-They do not replace browser authorization or GitHub namespace verification.
-Remove the pending notice only after actual publication.
-
-## Official references
-
-- [DeepSeek Harness repository and safety guidance](https://github.com/deepseek-ai/deepseek-harness)
-- [DSH CLI options](https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/cli-help.md)
-- [DSH headless credentials and NDJSON contract](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/bundle/headless/README.md)
-- [Codex MCP configuration](https://developers.openai.com/codex/mcp/)
-- [Codex project configuration](https://developers.openai.com/codex/config-basic/)
+- [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)
+- [DSH Headless 凭据和 NDJSON 接口](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/bundle/headless/README.md)
+- [Codex MCP 配置](https://developers.openai.com/codex/mcp/)
 - [Codex skills](https://developers.openai.com/codex/skills/)
-- [Official MCP Registry quickstart](https://modelcontextprotocol.io/registry/quickstart)
-- [Official MCP Registry schema](https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json)
-- [npm npx documentation](https://docs.npmjs.com/cli/v11/commands/npx)
-- [npm login documentation](https://docs.npmjs.com/cli/v11/commands/npm-login)
-- [npm publish documentation](https://docs.npmjs.com/cli/v11/commands/npm-publish)
+- [MCP Registry 发布说明](https://modelcontextprotocol.io/registry/quickstart)
+- [npm 发布说明](https://docs.npmjs.com/creating-and-publishing-scoped-public-packages)
