@@ -1,4 +1,4 @@
-# Planned 0.5.0, not yet published. The commands below apply after publication.
+# Version 0.5.0. Use the pinned version below for the terminal setup flow.
 # Recommended: npx --yes --package @hzxwonder/dsh-mcp@0.5.0 dsh-mcp setup
 # Setup is terminal-only: protocol, Base URL, hidden API key, authenticated model list.
 # Select a model, review the masked summary, then run the tiny paid inference test.

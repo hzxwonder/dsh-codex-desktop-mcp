@@ -4,11 +4,11 @@
 
 ## 快速开始：终端 setup
 
-> 本文描述计划中的 **0.5.0**，该版本尚未发布。以下固定版本的 npx 命令供发布后使用；不要把 npm 上旧版本的安装行为当成本文流程。当前源码的运行方式见文末“高级：源码安装与开发”。
+> 本文对应 **0.5.0**。使用下面的固定版本命令，避免运行旧版本的浏览器配置向导。
 
 需要 macOS 或 Linux、Node.js **24.9.0 或更高版本**、npm，以及支持 MCP 的 Codex 客户端。准备好所选 API 服务的密钥；ChatGPT 登录、订阅额度和 DSH GUI 登录不能替代它。
 
-发布后运行：
+在终端运行：
 
 ```sh
 npx --yes --package @hzxwonder/dsh-mcp@0.5.0 dsh-mcp setup
@@ -176,7 +176,7 @@ npx 安装可能把服务路径记录为 npm 缓存中的绝对路径。清理�
 | MCP 注册与 stdio 握手 | 配置可读、服务器能初始化并列出工具 | 当前 App 会话已经连接 |
 | Codex 当前会话工具列表 | 该会话实际提供 `delegate_to_deepseek`（可能带服务器前缀） | 委派任务已通过验收 |
 
-发布后用同一用户、同一主机和同一个 `CODEX_HOME` 运行：
+用同一用户、同一主机和同一个 `CODEX_HOME` 运行：
 
 ```sh
 npx --yes --package @hzxwonder/dsh-mcp@0.5.0 dsh-mcp doctor
@@ -244,7 +244,7 @@ npm run setup
 
 包页面：[npm · @hzxwonder/dsh-mcp](https://www.npmjs.com/package/@hzxwonder/dsh-mcp)。普通安装用户不需要登录 npm。
 
-官方 MCP Registry 条目尚未登记；计划中的 `0.5.0` 也尚未发布。npm 发布不自动进入客户端商店。`server.json` 是分发元数据，不保证 Codex 原生商店提供与终端 setup 相同的输入流程；`isSecret` 只是客户端处理提示，不保证加密存储。
+官方 MCP Registry 条目尚未登记。npm 发布不自动进入客户端商店。`server.json` 是分发元数据，不保证 Codex 原生商店提供与终端 setup 相同的输入流程；`isSecret` 只是客户端处理提示，不保证加密存储。
 
 手动配置见 [examples/codex.toml](examples/codex.toml)。优先使用安装器私有文件或客户端受保护凭据存储，不把真实密钥提交到 TOML。
 
