@@ -7,7 +7,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod';
 import { createWorker } from './worker.js';
 import metadata from '../package.json' with { type: 'json' };
-import { normalizeBaseUrl, parseProviderSettings } from './provider.js';
+import { buildProviderRuntime, resolveProviderSettings, parseProviderSettings } from './provider.js';
 
 const { values } = parseArgs({ options: {
   'dsh-home': { type: 'string', default: join(homedir(), '.dsh-mcp') },
@@ -25,20 +25,25 @@ catch (error) { if (error.code !== 'ENOENT') throw error; }
 let provider = {};
 try { provider = parseProviderSettings(await readFile(join(home, 'settings.json'), 'utf8')); }
 catch (error) { if (error.code !== 'ENOENT') throw error; }
-const apiKey = process.env.DEEPSEEK_API_KEY ?? stored.DEEPSEEK_API_KEY;
-if (apiKey !== undefined) process.env.DEEPSEEK_API_KEY = apiKey;
-process.env.DEEPSEEK_BASE_URL = normalizeBaseUrl(process.env.DEEPSEEK_BASE_URL ?? provider.baseUrl);
+const apiKey = process.env.DEEPSEEK_API_KEY?.trim() || stored.DEEPSEEK_API_KEY?.trim() || undefined;
+const savedProvider = resolveProviderSettings(provider, { legacy: !!provider.baseUrl && !provider.protocol });
+const protocol = process.env.DSH_MCP_PROTOCOL || savedProvider.protocol;
+const providerRuntime = buildProviderRuntime({
+  protocol,
+  baseUrl: process.env.DEEPSEEK_BASE_URL ?? (protocol === savedProvider.protocol ? savedProvider.baseUrl : undefined),
+  model: process.env.DSH_MCP_MODEL || savedProvider.model,
+}, apiKey);
 
-const worker = createWorker({ home });
+const worker = createWorker({ home, providerRuntime });
 const instructions = await readFile(new URL('../config/routing.md', import.meta.url), 'utf8');
 const server = new McpServer({ name: 'dsh-mcp', version: metadata.version }, { instructions });
 server.registerTool('delegate_to_deepseek', {
   title: 'Delegate a bounded task to DeepSeek Harness',
-  description: 'Run one bounded task with DeepSeek Flash. Supply the absolute project_root from active Codex context or explicit user authorization. Use read-only for analysis. Select workspace-write explicitly for edits. Supply complete context and acceptance criteria. Pause other writers. Review the actual files and check the result. A completed status does not mean task acceptance.',
+  description: 'Run one bounded task with the configured model through local DeepSeek Harness. Supply the absolute project_root from active Codex context or explicit user authorization. Use read-only for analysis. Select workspace-write explicitly for edits. Supply complete context and acceptance criteria. Pause other writers. Review the actual files and check the result. A completed status does not mean task acceptance.',
   inputSchema: {
     project_root: z.string().min(1).describe('Required absolute project directory from Codex context or explicit user authorization. This is the caller directory grant, not an independently verified workspace ACL.'),
     task: z.string().trim().min(1).max(65536).describe('Self-contained task, allowed files, constraints, acceptance criteria and requested verification.'),
-    thinking_effort: z.enum(['off', 'low', 'high', 'max']).describe('Required DSH reasoning effort. Choose explicitly for every call and resume. Use low for mechanical tasks and high for bounded reasoning.'),
+    thinking_effort: z.enum(providerRuntime.thinkingEfforts).describe('Required model-supported DSH reasoning effort. Choose explicitly for every call and resume; unsupported levels are rejected, never silently clamped.'),
     cwd: z.string().min(1).default('.').describe('Directory relative to project_root, or an absolute directory within project_root.'),
     permission_mode: z.enum(['read-only', 'workspace-write']).default('read-only'),
     session_id: z.string().min(1).max(256).optional().describe('Previously returned DSH session ID for scoped revision in the same cwd.'),

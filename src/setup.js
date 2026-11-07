@@ -4,12 +4,11 @@ import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { isDeepStrictEqual, parseArgs, parseEnv } from 'node:util';
-import { createInterface } from 'node:readline';
-import { Writable } from 'node:stream';
 import { randomUUID } from 'node:crypto';
 import { parse } from 'smol-toml';
-import { DEFAULT_BASE_URL, normalizeBaseUrl, parseProviderSettings } from './provider.js';
-import { createSetupForm, openSetupBrowser } from './setup-ui.js';
+import { parseProviderSettings, resolveProviderSettings } from './provider.js';
+import { runTerminalSetup } from './setup-terminal.js';
+import { inspectRegistration } from './doctor.js';
 
 const packageRoot = fileURLToPath(new URL('../', import.meta.url));
 const defaultHome = join(homedir(), '.dsh-mcp');
@@ -53,6 +52,29 @@ function parseConfig(text) {
   catch { throw new Error('Codex config.toml is not valid TOML. Repair this file before setup.'); }
 }
 
+function updateCredential(text, requestedKey) {
+  const before = parseEnv(text);
+  const key = (requestedKey ?? before.DEEPSEEK_API_KEY)?.trim();
+  if (!key || /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(key)) {
+    throw new Error('API Key 必须是非空的单行文本。');
+  }
+  if (before.DEEPSEEK_API_KEY === key) return text;
+  if (/[\r\n]/.test(before.DEEPSEEK_API_KEY ?? '')) {
+    throw new Error('旧凭据格式无法安全更新。请先备份私有 .env 文件，现有内容未改变。');
+  }
+  let replaced = false;
+  let next = text.replace(/^[\uFEFF \t]*(?:export[ \t]+)?DEEPSEEK_API_KEY[ \t]*=.*(?:\r?\n|$)/gm, () => {
+    if (replaced) return '';
+    replaced = true;
+    return `DEEPSEEK_API_KEY=${JSON.stringify(key)}\n`;
+  });
+  if (!replaced) next += `${next && !next.endsWith('\n') ? '\n' : ''}DEEPSEEK_API_KEY=${JSON.stringify(key)}\n`;
+  if (!isDeepStrictEqual({ ...parseEnv(next) }, { ...before, DEEPSEEK_API_KEY: key })) {
+    throw new Error('无法在保留其他凭据配置的同时安全更新 API Key，现有内容未改变。');
+  }
+  return next;
+}
+
 async function matchesPreviousBundledSkill(server, skillText) {
   const script = server?.args?.[0];
   if (typeof script !== 'string' || !isAbsolute(script)) return false;
@@ -89,7 +111,7 @@ export async function installCodex({
   home = defaultHome,
   codexHome = process.env.CODEX_HOME || join(homedir(), '.codex'),
   skillsHome = join(homedir(), '.agents', 'skills'),
-  apiKey, baseUrl,
+  apiKey, baseUrl, protocol, model,
 }) {
   if (process.platform === 'win32') throw new Error('Setup requires macOS or Linux.');
   home = resolve(home);
@@ -110,6 +132,7 @@ export async function installCodex({
   const args = [join(packageRoot, 'src', 'server.js'), '--dsh-home', home];
   const entry = [
     '[mcp_servers.dsh]', `command = ${JSON.stringify(process.execPath)}`, `args = ${JSON.stringify(args)}`,
+    'enabled = true',
     'startup_timeout_sec = 20', 'tool_timeout_sec = 960',
   ].join('\n');
   const { text: nextConfig, previous } = managedBlock(config.text, '# BEGIN dsh-mcp', '# END dsh-mcp', entry);
@@ -124,17 +147,16 @@ export async function installCodex({
     throw new Error('A different deepseek-worker skill already exists and cannot be safely upgraded. Back up or rename that skill before setup; existing files were not changed.');
   }
   parseConfig(nextConfig);
-  const existingKey = parseEnv(credentials.text).DEEPSEEK_API_KEY;
   const providerSettings = parseProviderSettings(provider.text);
-  const providerUrl = normalizeBaseUrl(baseUrl ?? providerSettings.baseUrl ?? DEFAULT_BASE_URL);
-  const nextProvider = JSON.stringify({ ...providerSettings, baseUrl: providerUrl }, null, 2) + '\n';
-  let nextCredentials = credentials.text;
-  if (!existingKey) {
-    const key = apiKey?.trim();
-    if (!key || /[\r\n\0]/.test(key)) throw new Error('Provide one nonempty DeepSeek API key without line breaks.');
-    nextCredentials += `${nextCredentials && !nextCredentials.endsWith('\n') ? '\n' : ''}DEEPSEEK_API_KEY=${JSON.stringify(key)}\n`;
-    if (parseEnv(nextCredentials).DEEPSEEK_API_KEY !== key) throw new Error('The API key cannot be stored as a dotenv value.');
-  }
+  const previousProvider = resolveProviderSettings(providerSettings, { legacy: !providerSettings.protocol && typeof providerSettings.baseUrl === 'string' });
+  const selected = resolveProviderSettings({
+    ...previousProvider,
+    ...(protocol === undefined ? {} : { protocol }),
+    ...(baseUrl === undefined ? {} : { baseUrl }),
+    ...(model === undefined ? {} : { model }),
+  });
+  const nextProvider = JSON.stringify({ ...providerSettings, ...selected }, null, 2) + '\n';
+  const nextCredentials = updateCredential(credentials.text, apiKey);
 
   // Check all user-file conflicts before creating credentials or Codex files.
   for (const directory of directories) await mkdir(directory, { recursive: true, mode: 0o700 });
@@ -148,73 +170,51 @@ export async function installCodex({
   return { home, configPath, skillPath };
 }
 
-function question(prompt, hidden = false) {
-  if (!process.stdin.isTTY) throw new Error('Use a terminal for prompts, or supply DEEPSEEK_API_KEY in the environment.');
-  const output = hidden ? new Writable({ write(_chunk, _encoding, callback) { callback(); } }) : process.stdout;
-  const input = createInterface({ input: process.stdin, output, terminal: true, historySize: 0 });
-  if (hidden) process.stdout.write(prompt);
-  return new Promise((accept, reject) => {
-    input.once('SIGINT', () => { input.close(); reject(new Error('Setup cancelled.')); });
-    input.once('close', () => reject(new Error('Setup input closed.')));
-    input.question(hidden ? '' : prompt, (answer) => {
-      accept(answer);
-      input.close();
-      if (hidden) process.stdout.write('\n');
-    });
-  });
-}
-
 export async function runSetup() {
   const { values } = parseArgs({ options: {
     home: { type: 'string', default: defaultHome },
-    terminal: { type: 'boolean', default: false },
     help: { type: 'boolean', default: false },
   } });
   if (values.help) {
-    console.log('Usage: dsh-mcp setup [--home /private/dsh-home] [--terminal]');
-    console.log('Setup opens a local form for API Key and Base URL.');
-    console.log('Use --terminal for terminal prompts. Secrets never enter command arguments.');
-    console.log('Setup installs user-wide Codex MCP settings and a skill. Codex supplies each project path at call time.');
+    console.log('用法: dsh-mcp setup [--home /private/dsh-home]');
+    console.log('纯终端配置：协议 → Base URL → API Key → 探测并选择模型。');
+    console.log('再次运行可逐项修改现有配置；连接测试通过后才保存并注册 MCP。');
+    console.log('诊断 Codex 注册和工具握手: dsh-mcp doctor');
     return;
   }
+  if (!process.stdin.isTTY) throw new Error('配置向导需要交互式终端。请在终端运行 dsh-mcp setup。');
   const home = resolve(values.home);
   await checkDirectory(home);
   const credentials = await readExisting(join(home, '.env'));
-  const provider = parseProviderSettings((await readExisting(join(home, 'settings.json'))).text);
-  const stored = parseEnv(credentials.text);
-  let apiKey = process.env.DEEPSEEK_API_KEY;
-  let baseUrl = process.env.DEEPSEEK_BASE_URL ?? provider.baseUrl ?? DEFAULT_BASE_URL;
-  let result;
-  if (values.terminal) {
-    if (!stored.DEEPSEEK_API_KEY && !apiKey) apiKey = await question('DeepSeek API key (hidden): ', true);
-    if (process.stdin.isTTY && !process.env.DEEPSEEK_BASE_URL) {
-      baseUrl = (await question(`Base URL [${baseUrl}]: `)).trim() || baseUrl;
-    }
-    result = await installCodex({ home, apiKey, baseUrl });
-  } else {
-    const form = await createSetupForm({
-      baseUrl, hasSavedKey: Boolean(stored.DEEPSEEK_API_KEY || apiKey),
-      onSubmit: (input) => installCodex({ home, apiKey: apiKey || input.apiKey, baseUrl: input.baseUrl }),
-    });
-    const cancel = () => form.close();
-    process.once('SIGINT', cancel);
-    process.once('SIGTERM', cancel);
-    try {
-      console.log(`Setup form: ${form.url}`);
-      if (!await openSetupBrowser(form.url)) console.log('Open the local URL in your browser to continue.');
-      result = await form.completed;
-    } finally {
-      process.removeListener('SIGINT', cancel);
-      process.removeListener('SIGTERM', cancel);
-    }
+  const saved = await readExisting(join(home, 'settings.json'));
+  const rawSettings = parseProviderSettings(saved.text);
+  const existing = saved.mode !== null || Boolean(parseEnv(credentials.text).DEEPSEEK_API_KEY);
+  const initial = existing ? rawSettings : {
+    ...(process.env.DSH_MCP_PROTOCOL ? { protocol: process.env.DSH_MCP_PROTOCOL } : {}),
+    ...(process.env.DEEPSEEK_BASE_URL ? { baseUrl: process.env.DEEPSEEK_BASE_URL } : {}),
+    ...(process.env.DSH_MCP_MODEL ? { model: process.env.DSH_MCP_MODEL } : {}),
+  };
+  const settings = resolveProviderSettings(initial, { legacy: existing && !rawSettings.protocol && typeof rawSettings.baseUrl === 'string' });
+  const apiKey = parseEnv(credentials.text).DEEPSEEK_API_KEY || process.env.DEEPSEEK_API_KEY || '';
+  const chosen = await runTerminalSetup({ settings, apiKey, existing });
+  const result = await installCodex({ home, ...chosen.settings, apiKey: chosen.apiKey });
+  console.log(`Codex 配置: ${result.configPath}`);
+  console.log(`用户 skill: ${result.skillPath}`);
+  console.log(`私有 API Key 文件: ${join(result.home, '.env')}`);
+  console.log(`私有服务配置: ${join(result.home, 'settings.json')}`);
+  console.log('正在检查 MCP 注册和工具握手...');
+  const health = await inspectRegistration({ configPath: result.configPath });
+  if (!health.ok) {
+    console.error('API 连接通过，配置也已保存，但 MCP 加载检查失败。');
+    for (const hint of health.hints ?? []) console.error(hint);
+    if (health.error) console.error(health.error);
+    throw new Error('请运行 dsh-mcp doctor 查看注册路径和启动状态；不能据此认为 Codex 已显示该工具。');
   }
-  console.log(`MCP configuration: ${result.configPath}`);
-  console.log(`Skill: ${result.skillPath}`);
-  console.log(`Private API key file: ${join(result.home, '.env')}`);
-  console.log(`Private provider settings: ${join(result.home, 'settings.json')}`);
-  console.log('Start a new Codex session. Codex supplies the active project_root with every delegated task.');
-  console.log('Use normal task prompts. Codex can select eligible DeepSeek tasks without an explicit tool request.');
+  console.log(`MCP 握手成功，工具: ${health.tools.join(', ')}`);
+  console.log('如果已打开的 Codex 仍未显示，请完整退出并重新打开 Codex Desktop，而不只是新开标签。');
+  console.log('确认 Codex 与安装器使用同一主机、用户和 CODEX_HOME。Auth unsupported 对本地 stdio 是正常状态。');
 }
+
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   runSetup().catch((error) => { console.error(`Setup failed: ${error.message}`); process.exitCode = 1; });

@@ -2,16 +2,17 @@ import { spawn, execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
-import { lstat, readlink, realpath, stat } from 'node:fs/promises';
-import { isAbsolute, relative, resolve, sep } from 'node:path';
+import { lstat, mkdtemp, readlink, realpath, rm, stat, writeFile } from 'node:fs/promises';
+import { isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { readSessionOutput } from './session-output.js';
+import { buildProviderRuntime } from './provider.js';
 
 const exec = promisify(execFile);
 const dsh = fileURLToPath(new URL('./lib/bin.js', import.meta.resolve('@deepseek-ai/dsh/package.json')));
 const patch = fileURLToPath(new URL('../config/worker.patch.yml', import.meta.url));
 const MAX_OUTPUT = 8 * 1024 * 1024;
-const THINKING_EFFORTS = new Set(['off', 'low', 'high', 'max']);
 
 // Wait for termination before releasing the worker; kill the process group, not just dsh.
 export function runProcess(command, { cwd, env, input, timeoutMs, signal }) {
@@ -123,13 +124,18 @@ async function gitSnapshot(cwd) {
   return { root, files };
 }
 
-export function createWorker({ home, command = [process.execPath, dsh], readSession = readSessionOutput }) {
+export function createWorker({ home, command = [process.execPath, dsh], readSession = readSessionOutput, providerRuntime = buildProviderRuntime({}, process.env.DEEPSEEK_API_KEY) }) {
+  const allowedEfforts = new Set(providerRuntime.thinkingEfforts);
+  const secret = providerRuntime.env.DEEPSEEK_API_KEY;
+  const redact = (value) => typeof value === 'string' && secret ? value.replaceAll(secret, '[REDACTED]') : value;
+  const redactObject = (value) => JSON.parse(JSON.stringify(value, (_name, item) => redact(item)));
   let busy = false;
   return {
     async delegate({ project_root, task, thinking_effort, cwd = '.', permission_mode = 'read-only', session_id, timeout_seconds = 300 }, { signal } = {}) {
       if (busy) throw new Error('DeepSeek worker is busy; serialize tasks across all projects');
       busy = true;
       let before;
+      let pluginDirectory;
       try {
         if (typeof project_root !== 'string' || !isAbsolute(project_root)) {
           throw new Error('project_root must be an absolute directory path');
@@ -142,11 +148,23 @@ export function createWorker({ home, command = [process.execPath, dsh], readSess
           throw new Error('cwd is outside project_root');
         }
         if (!(await stat(directory)).isDirectory()) throw new Error('cwd must be a directory');
-        if (!THINKING_EFFORTS.has(thinking_effort)) {
-          throw new Error('thinking_effort is required and must be off, low, high, or max');
+        if (!allowedEfforts.has(thinking_effort)) {
+          throw new Error(`thinking_effort is required and must be one of: ${providerRuntime.thinkingEfforts.join(', ')} for the selected model`);
         }
         before = await gitSnapshot(directory);
-        const args = ['headless', '--patch', patch, '--json', '--permission-mode', permission_mode, '--approval-policy', 'never'];
+        const args = ['headless', '--patch', patch];
+        const plugin = providerRuntime.env.DSH_MCP_PI_PLUGIN;
+        if (plugin && plugin !== '@deepseek-ai/dsh-llm-pi-ai') {
+          pluginDirectory = await mkdtemp(join(tmpdir(), 'dsh-mcp-plugin-'));
+          const pluginPatch = join(pluginDirectory, 'provider.json');
+          // Cordis permits expressions in config, but plugin identities must be literal names.
+          await writeFile(pluginPatch, JSON.stringify([
+            { id: 'llm-pi-ai', disabled: true },
+            { insert: [{ id: 'dsh-mcp-off-only', name: plugin }] },
+          ]), { mode: 0o600 });
+          args.push('--patch', pluginPatch);
+        }
+        args.push('--json', '--permission-mode', permission_mode, '--approval-policy', 'never');
         if (session_id) args.push('--session-id', session_id);
         args.push('-');
         const prompt = [
@@ -161,9 +179,13 @@ export function createWorker({ home, command = [process.execPath, dsh], readSess
         ].join('\n');
         const result = await runProcess([...command, ...args], {
           cwd: directory,
-          env: { ...process.env, DSH_HOME: home, DSH_PERMISSION_MODE: permission_mode, DSH_MCP_THINKING_EFFORT: thinking_effort },
+          env: { ...process.env, ...providerRuntime.env, DSH_HOME: home, DSH_PERMISSION_MODE: permission_mode, DSH_MCP_THINKING_EFFORT: thinking_effort },
           input: prompt, timeoutMs: timeout_seconds * 1000, signal,
         });
+        if (pluginDirectory) {
+          await rm(pluginDirectory, { recursive: true, force: true });
+          pluginDirectory = undefined;
+        }
         let run;
         try { run = parseRun(result.stdout, result.exit_code); }
         catch (error) { run = { status: 'failed', session_id: null, turn: null, reason: error.message }; }
@@ -192,20 +214,24 @@ export function createWorker({ home, command = [process.execPath, dsh], readSess
         } catch (error) { changeWarning = `Cannot inspect changes: ${error.message}`; }
         return {
           ...run,
+          reason: run.reason == null ? run.reason : redactObject(run.reason),
           status: result.failure ?? run.status,
           answer: output?.text ?? '',
           output_source: output ? 'session' : null,
           session_file: output?.session_file ?? null,
           assistant_seq: output?.assistant_seq ?? null,
-          terminal_reason: output?.terminal_reason ?? null,
-          session_output_error: sessionOutputError,
+          terminal_reason: output?.terminal_reason == null ? null : redactObject(output.terminal_reason),
+          session_output_error: redact(sessionOutputError),
           thinking_effort,
-          project_root: root, cwd: directory, model: 'deepseek-flash', permission_mode,
+          project_root: root, cwd: directory, model: providerRuntime.model, protocol: providerRuntime.protocol, permission_mode,
           exit_code: result.exit_code, signal: result.signal,
           changed_files: changedFiles, git_root: before?.root ?? null,
-          change_warning: changeWarning, diagnostics: result.stderr,
+          change_warning: redact(changeWarning), diagnostics: redact(result.stderr),
         };
-      } finally { busy = false; }
+      } finally {
+        try { if (pluginDirectory) await rm(pluginDirectory, { recursive: true, force: true }); }
+        finally { busy = false; }
+      }
     },
   };
 }

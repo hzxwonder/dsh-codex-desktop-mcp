@@ -1,41 +1,54 @@
 # dsh-mcp
 
-让 Codex 保持当前 GPT 模型、Provider 和账号登录，通过 MCP 把边界明确的任务交给 **DeepSeek Harness + DeepSeek Flash**。Codex 主代理负责选择思考强度、读取工作器结果、审查修改和最终验收。
+让 Codex 保持当前 GPT 模型、Provider 和账号登录，通过 MCP 把边界明确的任务交给**本机完整的 DeepSeek Harness（DSH）**。DSH 使用 setup 中选择的协议、API 服务和模型；Codex 主代理负责选择思考强度、读取工作器结果、审查修改和最终验收。
 
-## 快速开始：npx 安装一次
+## 快速开始：终端 setup
 
-需要 macOS 或 Linux、Node.js **24.9.0 或更高版本**、npm，以及支持 MCP 的 Codex 客户端。准备好 [DeepSeek API Key](https://platform.deepseek.com/api_keys)，或兼容 Messages API 的服务凭据。
+> 本文描述计划中的 **0.5.0**，该版本尚未发布。以下固定版本的 npx 命令供发布后使用；不要把 npm 上旧版本的安装行为当成本文流程。当前源码的运行方式见文末“高级：源码安装与开发”。
 
-安装命令固定使用 `0.4.0`。此版本要求每次显式选择思考强度，并从持久化 session 返回最终结果。
+需要 macOS 或 Linux、Node.js **24.9.0 或更高版本**、npm，以及支持 MCP 的 Codex 客户端。准备好所选 API 服务的密钥；ChatGPT 登录、订阅额度和 DSH GUI 登录不能替代它。
+
+发布后运行：
 
 ```sh
-npx --yes --package @hzxwonder/dsh-mcp@0.4.0 dsh-mcp setup
+npx --yes --package @hzxwonder/dsh-mcp@0.5.0 dsh-mcp setup
 ```
 
-安装器打开本机浏览器表单，只填写两个配置项：
+默认全程在终端完成，不启动浏览器。首次配置按以下顺序输入：
 
-| 配置项 | 说明 |
+1. **协议**：默认 Chat Completions，另外可选 OpenAI Responses 或 Anthropic Messages。
+2. **Base URL**：先显示该协议的默认根地址，可按你的服务修改。
+3. **API Key**：隐藏输入，不回显，也不进入命令参数或项目配置。
+4. **模型**：携带刚输入的凭据向远端获取当前账号可见的模型列表，再由你选择一个模型。
+
+| 协议与请求路径 | 默认 Base URL |
 | --- | --- |
-| API Key | 必填，密码输入框，不会进入命令参数或项目配置。 |
-| Base URL | 可选，留空使用 `https://api.deepseek.com/anthropic`。 |
+| Chat Completions · `POST /chat/completions` | `https://api.deepseek.com/v1` |
+| OpenAI Responses（Codex / OpenAI）· `POST /responses` | `https://api.openai.com/v1` |
+| Anthropic Messages · `POST /v1/messages` | `https://api.anthropic.com` |
 
-保存后，在 Codex 中新建会话，确认工具列表出现 `delegate_to_deepseek`。客户端可能为工具名添加服务器前缀。
+Chat Completions 和 Responses 的路径相对于表中的 Base URL；例如 OpenAI Responses 实际请求为 `https://api.openai.com/v1/responses`。**Codex / OpenAI Responses 不是 Anthropic `/v1/messages`**。Base URL 填服务根地址，不填完整推理路径。选择 OpenAI 官方服务时必须选它实际提供的模型，不会静默换成 DeepSeek Flash。
 
-**全局安装一次，不选择或绑定项目，也不需要逐项目配置。** 每次委派时，Codex 必须传入当前授权项目的绝对路径 `project_root`，并主动选择 `thinking_effort`。
+接下来显示**协议、Base URL、掩码 API Key、模型**四项摘要。确认后，终端用进度提示执行一次真实、极小的模型推理；这一步可能产生少量 API 费用，不是只检查密钥是否已保存。只有该请求成功后才显示：
 
-没有图形浏览器时，使用终端输入：
-
-```sh
-npx --yes --package @hzxwonder/dsh-mcp@0.4.0 dsh-mcp setup --terminal
+```text
+✅ Connection successful!
 ```
 
-终端不会回显 API Key。不要把真实密钥写进命令参数、URL、任务文本、skill 或项目配置。ChatGPT 登录、订阅额度和 DSH GUI 登录不能替代 API Key。
+失败会显示错误并返回可编辑摘要；可以修改协议、URL、密钥或模型后重测，不必从头安装。之后要换服务、轮换密钥或改模型，**再次运行同一条 setup 命令**即可：有已保存设置时先显示掩码摘要，再选择要修改的项。不要通过项目 TOML 或任务文本传密钥。
 
-### Base URL 必须支持 Messages
+**全局安装一次，不选择或绑定项目，也不需要逐项目配置。** MCP 和完整 Harness 都在本机运行，不使用作者提供的执行服务。每次委派时，Codex 必须传入当前授权项目的绝对路径 `project_root`，并主动选择当前模型支持的 `thinking_effort`。
 
-DSH 使用 **Messages API**，请求路径为 `/v1/messages`。默认根地址是 `https://api.deepseek.com/anthropic`。只支持 OpenAI Chat Completions 的地址不能直接使用。
+### 远端模型发现与推理测试是两件事
 
-自定义地址不能包含用户名、密码、查询参数或片段。请只使用可信服务：该服务会收到你的密钥和任务数据。模型费用由对应 API 服务收取。
+- Chat Completions / Responses 使用 Bearer 凭据访问模型列表 `/models`；Anthropic 原生接口使用 `x-api-key`、`anthropic-version` 访问 `/v1/models`，并读取分页结果。必须使用与你的协议和服务对应的列表入口。
+- 旧 DeepSeek Messages 入口使用官方特殊列表地址 `https://api.deepseek.com/models` 和 `x-api-key`，仅限精确的 DeepSeek 官方来源；不会把这一规则套用到任意代理域名，也不会为获取列表把凭据发送到其他来源。
+- 代理或兼容服务可能只开放推理、不开放模型列表，或限制当前密钥可见的模型。空列表、鉴权失败和不合法的返回体都不是发现成功，更不是连接成功。
+- 如果无法发现模型，终端会明确报告失败，并提供**手动输入模型 ID**的选择；不会把本地静态模型表冒充远端发现结果。手动输入后仍必须通过真实推理测试。
+- 列表可见不保证该模型支持所选协议、工具调用或某档思考强度。setup 的极小推理测试也不是完整 DSH 工具链验收。
+- 自定义地址不能含用户名、密码、查询参数或片段。只使用可信服务：它会收到你的密钥和任务数据。模型列表请求拒绝重定向，不把密钥转发到其他来源；模型费用由所选 API 服务收取。
+
+旧 `0.4` 私有设置若没有协议和模型字段，迁移时保留原有 **Anthropic Messages + `deepseek-flash`** 行为，不会因新默认值而改成 Chat Completions。需要切换时在 setup 摘要中显式修改。
 
 ## 让 Codex 委派任务
 
@@ -53,18 +66,22 @@ DSH 使用 **Messages API**，请求路径为 `/v1/messages`。默认根地址�
 
 ### Codex 必须主动选择思考强度
 
-每次调用（包括用 `session_id` 续接）都必须显式传入 `thinking_effort`，没有默认值：
+每次调用（包括用 `session_id` 续接）都必须显式传入 `thinking_effort`，没有默认值。以下是桥接器支持表达的档位，**实际可用值以当前所选模型对应的 MCP 工具 schema 为准**，不保证每个模型都有四档：
 
-| 值 | 选择依据 |
+| 候选值 | 在当前模型支持时的选择依据 |
 | --- | --- |
 | `low` | 机械修改、简单文档或明确的样板任务。 |
 | `high` | 边界明确，但需要推理的实现或测试任务。 |
-| `off` | 明确决定不使用思考时才选择。 |
+| `off` | 明确决定不使用思考；非推理模型按工具 schema 选择。 |
 | `max` | 额外推理成本有明确理由时才选择。 |
 
-Codex 不得静默补齐缺失值。只接受 `off`、`low`、`high`、`max`，不接受 `medium` 或 `xhigh` 等别名。这是真实的 DSH `agent-default-model.config.reasoningEffort` 配置，不是任务中的提示词。续接时也必须重新选择，不依赖旧会话的设置。
+Codex 不得静默补齐缺失值，不接受 `medium` 或 `xhigh` 等别名，也不得把不支持的档位静默降为另一档。这是真实的 DSH `agent-default-model.config.reasoningEffort` 配置，不是任务中的提示词。续接时也必须重新选择，不依赖旧会话的设置。未知模型没有可核实的能力元数据时，工具只暴露 `off`；这是元数据限制，不表示该模型一定没有推理能力。不要从模型列表或名称推断它支持任意档位。
+
+远端标准模型列表通常不包含上下文长度、输出上限或推理能力。已知模型复用本机适配器目录的元数据；未知 ID 暂按纯文本、32,768 token 上下文和 4,096 token 输出上限配置，并保留 DSH 原生上下文压缩。这些是本地配置假设，不是服务能力保证；若服务实际上限更低，请求仍可能被拒绝。API 请求始终使用你显式选择的 Base URL，不因命中模型元数据而换服务。
 
 ### 最小调用示例
+
+下例假设当前模型的工具 schema 包含 `high`；否则应显式选择 schema 允许的档位。
 
 ```json
 {
@@ -121,32 +138,62 @@ npm 自动下载**真实、完整的本地 Harness 依赖**。不需要另行全
 
 本项目不提供远程执行服务。依赖占用较大，具体磁盘占用取决于平台、依赖布局和缓存。
 
-固定使用 `@deepseek-ai/dsh@0.2.2-rc.1` 和 `deepseek-flash`。DSH 仍处于 developer preview，升级时需要检查兼容性。使用官方 `headless --json` 和持久化/查询库，不依赖 DSH Web 内部接口。
+本地 Harness 依赖固定为 `@deepseek-ai/dsh@0.2.2-rc.1`，**模型与协议来自你的设置，不固定为 `deepseek-flash`**。DSH 仍处于 developer preview，升级时需要检查兼容性。实际任务使用官方 `headless --json` 和持久化/查询库，不以简化的 API 脚本代替完整 Harness，也不依赖 DSH Web 内部接口。
 
 | 文件 | 用途 |
 | --- | --- |
 | `~/.codex/config.toml` | 注册用户级 MCP 服务器 `dsh`。 |
 | `~/.agents/skills/deepseek-worker/SKILL.md` | 安装用户级委派 skill。 |
 | `~/.dsh-mcp/.env` | 保存 API Key。 |
-| `~/.dsh-mcp/settings.json` | 保存 Base URL。 |
+| `~/.dsh-mcp/settings.json` | 保存协议、Base URL、模型；不保存 API Key。 |
 
 设置 `CODEX_HOME` 时，Codex 配置写入 `$CODEX_HOME/config.toml`。`--home` 只改变 DSH 私有状态目录。私有目录权限为 `0700`，密钥和设置文件为 `0600`。MCP 配置不包含密钥或固定项目路径。
 
-**不要把 `DEEPSEEK_BASE_URL` 写进私有 `.env`。** DSH 不允许在那里设置网络路由变量。桥接器从 `settings.json` 读取地址，再通过进程环境传入。
+网络路由设置保存在 `settings.json`，不写入 DSH 私有 `.env`。桥接器读取设置后，为本次 DSH 子进程构造协议、模型和网络配置。不要把真实密钥放进项目配置、命令参数、URL、日志或截图。
 
-安装器复用已保存的密钥，不覆盖它。更换密钥时，编辑私有 `.env` 后启动新的 MCP 会话。安装器保留其他模型、Provider、MCP 和登录配置，不向项目写入配置或 skill。
+安装器保留其他模型、Provider、MCP 和登录配置，不向项目写入配置或 skill。更换密钥直接再次运行 setup，在摘要中选择修改 API Key，输入新密钥并重新测试；不需要手改私有文件。
 
 ### 更新与冲突保护
 
 更新已安装配置仍使用同一条全局 setup 命令，不需要逐项目操作：
 
 ```sh
-npx --yes --package @hzxwonder/dsh-mcp@0.4.0 dsh-mcp setup
+npx --yes --package @hzxwonder/dsh-mcp@0.5.0 dsh-mcp setup
 ```
 
 安装器可以更新归它管理且未被修改的旧 skill 模板。若 skill 已定制，或缺少可核对的旧模板引用，安装器保留现有文件并报告冲突。先备份，再手动合并或处理冲突，不要直接覆盖定制内容。同名但不归安装器管理的 `dsh` 配置也不会被覆盖。
 
 npx 安装可能把服务路径记录为 npm 缓存中的绝对路径。清理缓存、移动安装目录或更换 Node 后，应重新运行 setup。
+
+### 已保存配置，但 Codex 看不到 dsh？
+
+把以下四层分开检查，不能用其中一层的成功替代另一层：
+
+| 层次 | 能证明什么 | 不能证明什么 |
+| --- | --- | --- |
+| 凭据模型列表 | 服务返回该凭据可见的模型 | 推理成功、模型完整能力 |
+| setup 真实推理测试 | 所选协议、地址、凭据和模型能完成极小请求 | MCP 已注册或 Codex App 已加载 |
+| MCP 注册与 stdio 握手 | 配置可读、服务器能初始化并列出工具 | 当前 App 会话已经连接 |
+| Codex 当前会话工具列表 | 该会话实际提供 `delegate_to_deepseek`（可能带服务器前缀） | 委派任务已通过验收 |
+
+发布后用同一用户、同一主机和同一个 `CODEX_HOME` 运行：
+
+```sh
+npx --yes --package @hzxwonder/dsh-mcp@0.5.0 dsh-mcp doctor
+```
+
+`doctor` 打印生效配置的位置，检查 stdio 初始化及工具目录。它不发送付费模型请求，也不读取 Desktop 的项目选择记录来推断当前会话的位置。分享输出前仍应检查本机路径等隐私，不附上 `.env`、私有登录文件、完整日志或原始任务。
+
+若诊断通过，但本地 Codex 仍不显示 `dsh`：
+
+1. 核对 `doctor` 返回的 `serverVersion`。旧 npx 缓存中的服务器不会因为下载了新源码就自动更新。运行你要使用的版本的 setup，更新注册路径。
+2. 检查当前项目的 `.codex/config.toml` 是否覆盖用户级 `dsh` 配置。不要删除其他 Provider 或登录配置。
+3. 保存工作，完整退出并重新打开 Codex。建立新会话，再检查 `/mcp` 或客户端的 MCP 状态界面。只刷新旧会话不能保证重新加载服务器。
+4. 核对安装器与本地 Codex 是否使用同一用户和 `CODEX_HOME`。若仍缺失，检查本地客户端日志中 `server=dsh` 的启动状态及错误。
+
+独立握手成功与 Desktop 实际加载是两项检查。Desktop 日志中的 `hostId=local server=dsh status=ready` 表示本地客户端报告服务器就绪；只有当前会话的工具目录才能证明该会话提供了工具。不能仅凭 `Cancelled` 就归因于 API Key 错误。
+
+stdio MCP 不需要浏览器登录；客户端显示不支持 OAuth / Auth，通常只是此传输不提供该认证方式，不是推理密钥校验结果。
 
 旧项目的 `.codex/config.toml` 可能覆盖新全局配置。只移除旧的受管理 `dsh` 区块，保留其他内容。对旧项目 skill 或 `AGENTS.md` 中的固定路径规则也只移除过时受管理部分。安装器不扫描或批量修改所有仓库。
 
@@ -155,7 +202,7 @@ npx 安装可能把服务路径记录为 npm 缓存中的绝对路径。清理�
 | 参数 | 默认值 | 说明 |
 | --- | --- | --- |
 | `project_root` | 必填 | 本次授权的项目绝对路径。 |
-| `thinking_effort` | 必填 | `off`、`low`、`high` 或 `max`。续接也必填。 |
+| `thinking_effort` | 必填 | 从当前模型工具 schema 允许的 `off`、`low`、`high`、`max` 子集中显式选择；续接也必填。 |
 | `task` | 必填 | 完整目标、上下文、允许修改的文件、限制和验收标准，最多 65536 字符。 |
 | `cwd` | `.` | 根目录内的相对目录或绝对目录。 |
 | `permission_mode` | `read-only` | 确需编辑时显式选择 `workspace-write`。 |
@@ -189,17 +236,15 @@ npm ci
 npm run setup
 ```
 
-终端安装使用 `npm run setup -- --terminal`。自定义私有目录使用 `npm run setup -- --home /absolute/path/to/private/dsh-home`。
+`npm run setup` 同样默认使用终端。自定义私有目录使用 `npm run setup -- --home /absolute/path/to/private/dsh-home`；源码诊断命令为 `node src/cli.js doctor`。
 
-开发检查命令为 `npm test`，当前 44 项检查全部通过。另用真实 DSH 和本地 Messages 协议桩核对了四档 effort 的实际请求、同会话续接和压缩 session 最终文本读取；从已发布的 `0.3.0` 配置升级也已验证。真实 DeepSeek 在线推理、Codex App 加载和模型自动选择工具仍需在实际环境中检查。
-
-公开分发验收也已通过：从 npm 安装 `0.4.0`，完成真实 `0.3.0 → 0.4.0` 配置升级，确认密钥和 Base URL 保持不变，并通过安装后的 Harness 核对 effort 与 session 输出链路。验证使用隔离的临时用户配置和本地协议桩，不产生真实模型费用。
+开发检查命令为 `npm test`。协议场景运行完整 DSH，写入持久化会话并读取最终输出，但使用本地模拟 API；这不代表三家生产服务或任意代理都已通过验证。本次实际 TTY 检查覆盖隐藏密钥、失败后修改、三种协议配置及再次配置。源码验证、npm 发布、Registry 登记和 Codex 当前会话可见性是不同状态。
 
 ## 分发与参考
 
 包页面：[npm · @hzxwonder/dsh-mcp](https://www.npmjs.com/package/@hzxwonder/dsh-mcp)。普通安装用户不需要登录 npm。
 
-官方 MCP Registry 条目尚未登记。npm 发布不自动进入客户端商店。`server.json` 提供两个 Provider 输入项，但不保证 Codex 原生商店显示相同表单。`isSecret` 只是客户端处理提示，不保证加密存储。
+官方 MCP Registry 条目尚未登记；计划中的 `0.5.0` 也尚未发布。npm 发布不自动进入客户端商店。`server.json` 是分发元数据，不保证 Codex 原生商店提供与终端 setup 相同的输入流程；`isSecret` 只是客户端处理提示，不保证加密存储。
 
 手动配置见 [examples/codex.toml](examples/codex.toml)。优先使用安装器私有文件或客户端受保护凭据存储，不把真实密钥提交到 TOML。
 

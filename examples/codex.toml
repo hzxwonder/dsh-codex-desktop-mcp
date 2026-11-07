@@ -1,11 +1,20 @@
-# Recommended: npx --yes --package @hzxwonder/dsh-mcp@0.4.0 dsh-mcp setup
+# Planned 0.5.0, not yet published. The commands below apply after publication.
+# Recommended: npx --yes --package @hzxwonder/dsh-mcp@0.5.0 dsh-mcp setup
+# Setup is terminal-only: protocol, Base URL, hidden API key, authenticated model list.
+# Select a model, review the masked summary, then run the tiny paid inference test.
+# Rerun the same setup command to edit settings or rotate the key.
+# A successful API test does not prove that the current Codex App session loaded MCP.
+# Diagnose registration and stdio tools separately:
+# npx --yes --package @hzxwonder/dsh-mcp@0.5.0 dsh-mcp doctor
+# Use the same host, user, and CODEX_HOME as Codex.
 # This example belongs in ~/.codex/config.toml or $CODEX_HOME/config.toml.
 # Preserve unrelated sections and current model, provider, and login settings.
 # Supply the active project's authorized absolute project_root in every tool call.
-# Explicitly select thinking_effort: off, low, high, or max in every call, including resume.
-# Use low for mechanical tasks and high for bounded reasoning.
-# Use off deliberately. Use max only when its additional cost is justified.
-# No effort default or aliases exist. Effort configures DSH reasoningEffort, not prompt text.
+# Explicitly select thinking_effort from the current model's tool schema in every call, including resume.
+# The schema exposes a subset of off, low, high, and max. Unknown metadata exposes only off.
+# Use low for mechanical tasks and high for bounded reasoning only when supported.
+# Use off deliberately. Use max only when supported and its additional cost is justified.
+# No effort default, aliases, or silent coercion exist. Effort configures DSH reasoningEffort, not prompt text.
 # After worker exit, read answer from output_source="session", plus reason and diagnostics.
 # Inspect session_id, session_file, assistant_seq, and turn before reviewing changes.
 # Never substitute stdout or an earlier turn when the latest durable answer is absent.
@@ -13,16 +22,24 @@
 # The pinned package installs DSH locally. No global DSH installation is necessary.
 [mcp_servers.dsh]
 command = "npx"
-args = ["--yes", "--package", "@hzxwonder/dsh-mcp@0.4.0", "dsh-mcp"]
+args = ["--yes", "--package", "@hzxwonder/dsh-mcp@0.5.0", "dsh-mcp"]
 # Optional: append "--dsh-home", "/absolute/private/home" to args.
 # Without --dsh-home, the private home is ~/.dsh-mcp.
 startup_timeout_sec = 20
 tool_timeout_sec = 960
 
-[mcp_servers.dsh.env]
-DEEPSEEK_BASE_URL = "https://api.deepseek.com/anthropic"
-# Documentation placeholder only. Use protected credential storage for a real key.
-# DEEPSEEK_API_KEY = "<API_KEY_PLACEHOLDER>"
-# Use setup's private .env or the client's protected environment settings.
-# The Base URL must support Messages /v1/messages, not only Chat Completions.
-# A custom provider receives your API key and task data.
+# Keep provider settings in ~/.dsh-mcp/settings.json (or the selected private home):
+# protocol, baseUrl, model. Prefer setup over manual edits.
+# New defaults:
+# chat-completions -> https://api.deepseek.com/v1 -> POST /chat/completions
+# responses -> https://api.openai.com/v1 -> POST /responses (Codex / OpenAI)
+# anthropic -> https://api.anthropic.com -> POST /v1/messages
+# Models come from your credential-visible remote list or an explicit manual ID.
+# Do not use a DeepSeek model ID for OpenAI's official API.
+# Existing 0.4 settings without protocol/model retain Messages + deepseek-flash until changed.
+# Real tasks run the full local DSH with the selected protocol and model.
+# Keep the real key in setup's private .env or protected client credential storage.
+# Do not place keys in this TOML, project files, commands, task text, or logs.
+# A custom API service receives your key and task data and bills its own API usage.
+# A model list, inference success, MCP handshake, and current App visibility are separate checks.
+# Unsupported OAuth for stdio is normal. It does not diagnose an API key.

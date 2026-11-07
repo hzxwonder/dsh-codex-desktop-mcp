@@ -1,8 +1,18 @@
 - id: agent-default-model
   config:
-    provider: deepseek-official
-    model: deepseek-flash
+    provider: !!js process.env.DSH_MCP_PROVIDER
+    model: !!js process.env.DSH_MCP_MODEL
     reasoningEffort: !!js process.env.DSH_MCP_THINKING_EFFORT
+- id: llm-pi-ai
+  config:
+    providers: !!js JSON.parse(process.env.DSH_MCP_PI_PROVIDERS)
+- id: llm-deepseek
+  disabled: !!js process.env.DSH_MCP_PROVIDER !== 'deepseek-official'
+  config: !!js JSON.parse(process.env.DSH_MCP_DEEPSEEK_PROFILE)
+- id: llm-deepseek-account
+  disabled: true
+- id: compaction-basic
+  config: !!js JSON.parse(process.env.DSH_MCP_COMPACTION_PROFILE)
 - id: settings
   disabled: true
 - id: config-editor

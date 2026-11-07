@@ -8,7 +8,7 @@ import { parse } from 'smol-toml';
 import { installCodex } from '../src/setup.js';
 
 const apiKey = 'sk-installer-test-not-a-real-credential';
-const replacementKey = 'sk-installer-test-must-not-replace-existing';
+const replacementKey = 'sk-installer-test-explicit-rotation';
 
 async function profile(t) {
   const base = await mkdtemp(join(tmpdir(), 'dsh-mcp-profile-'));
@@ -76,7 +76,7 @@ test('a managed previous npm installation upgrades its untouched skill without r
   const keyBefore = await readFile(keyPath, 'utf8');
   const agentsBefore = await readFile(paths.agentsPath, 'utf8');
   const authBefore = await readFile(paths.authPath, 'utf8');
-  await installCodex({ ...paths, apiKey: replacementKey });
+  await installCodex(paths);
   const configText = await readFile(paths.configPath, 'utf8');
   assert(configText.includes(paths.unrelated));
   const server = parse(configText).mcp_servers.dsh;
@@ -89,9 +89,9 @@ test('a managed previous npm installation upgrades its untouched skill without r
   assert.equal(await readFile(paths.agentsPath, 'utf8'), agentsBefore);
   assert.equal(await readFile(paths.authPath, 'utf8'), authBefore);
   assert.deepEqual(JSON.parse(await readFile(join(paths.home, 'settings.json'), 'utf8')), {
-    baseUrl: 'https://saved.example/v1', custom: { keep: true },
+    baseUrl: 'https://saved.example/v1', custom: { keep: true }, protocol: 'anthropic', model: 'deepseek-flash',
   });
-  await installCodex({ ...paths, apiKey: replacementKey });
+  await installCodex(paths);
   assert.equal(await readFile(paths.configPath, 'utf8'), configText);
   assert.equal(await readFile(paths.skillPath, 'utf8'), upgradedSkill);
 });
@@ -174,7 +174,7 @@ test('repeated global setup preserves the saved key and does not duplicate manag
   await installCodex({ ...paths, apiKey });
   const files = [paths.configPath, paths.skillPath, join(paths.home, '.env'), join(paths.home, 'settings.json')];
   const before = await Promise.all(files.map((path) => readFile(path, 'utf8')));
-  await installCodex({ ...paths, apiKey: replacementKey });
+  await installCodex(paths);
   const after = await Promise.all(files.map((path) => readFile(path, 'utf8')));
   assert.deepEqual(after, before);
   assert.equal(parseEnv(after[2]).DEEPSEEK_API_KEY, apiKey);
@@ -228,4 +228,41 @@ test('a symlink credential file cannot redirect global setup writes', async (t) 
   await absent(join(paths.home, 'settings.json'));
   await absent(paths.configPath);
   await absent(paths.skillPath);
+});
+
+test('explicit key rotation removes the old secret and preserves unrelated dotenv values', async (t) => {
+  const paths = await profile(t);
+  await installCodex({ ...paths, apiKey });
+  const keyPath = join(paths.home, '.env');
+  const prefix = '# Preserve this comment\r\nUNRELATED=\"keep value\"\r\n';
+  const suffix = 'ANOTHER=value\r\n';
+  await writeFile(keyPath, `${prefix}export DEEPSEEK_API_KEY=${JSON.stringify(apiKey)}\r\n${suffix}`);
+  const configBefore = await readFile(paths.configPath, 'utf8');
+  const providerBefore = await readFile(join(paths.home, 'settings.json'), 'utf8');
+  await installCodex({ ...paths, apiKey: replacementKey });
+  const rotated = await readFile(keyPath, 'utf8');
+  assert.equal(parseEnv(rotated).DEEPSEEK_API_KEY, replacementKey);
+  assert(!rotated.includes(apiKey));
+  assert(rotated.startsWith(prefix));
+  assert(rotated.endsWith(suffix));
+  assert.equal(await readFile(paths.configPath, 'utf8'), configBefore);
+  assert.equal(await readFile(join(paths.home, 'settings.json'), 'utf8'), providerBefore);
+});
+
+test('credential edits cannot corrupt an unrelated multiline dotenv value', async (t) => {
+  const paths = await profile(t);
+  await installCodex({ ...paths, apiKey });
+  const keyPath = join(paths.home, '.env');
+  const original = `UNRELATED="first
+DEEPSEEK_API_KEY=inside-unrelated-value
+last"
+DEEPSEEK_API_KEY=${apiKey}
+`;
+  await writeFile(keyPath, original);
+  const configBefore = await readFile(paths.configPath, 'utf8');
+  const providerBefore = await readFile(join(paths.home, 'settings.json'), 'utf8');
+  await assert.rejects(installCodex({ ...paths, apiKey: replacementKey }), /安全更新/);
+  assert.equal(await readFile(keyPath, 'utf8'), original);
+  assert.equal(await readFile(paths.configPath, 'utf8'), configBefore);
+  assert.equal(await readFile(join(paths.home, 'settings.json'), 'utf8'), providerBefore);
 });

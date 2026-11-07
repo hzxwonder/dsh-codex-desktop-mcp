@@ -2,8 +2,8 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.hzxwonder/dsh-mcp",
   "title": "DeepSeek Harness for Codex",
-  "description": "Delegate bounded tasks to local DeepSeek Harness with an explicit project_root in every tool call.",
-  "version": "0.4.0",
+  "description": "Run local Harness tasks through Chat Completions, Responses, or Anthropic Messages.",
+  "version": "0.5.0",
   "repository": {
     "url": "https://github.com/hzxwonder/dsh-mcp",
     "source": "github"
@@ -14,25 +14,40 @@
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "@hzxwonder/dsh-mcp",
-      "version": "0.4.0",
+      "version": "0.5.0",
       "runtimeHint": "npx",
       "transport": {
         "type": "stdio"
       },
       "environmentVariables": [
         {
+          "name": "DSH_MCP_PROTOCOL",
+          "description": "Wire protocol. The terminal setup command discovers models and validates the selected protocol.",
+          "format": "string",
+          "choices": ["chat-completions", "responses", "anthropic"],
+          "default": "chat-completions",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
           "name": "DEEPSEEK_API_KEY",
-          "description": "API Key for a compatible Messages API provider. Pass this secret through the environment, not command arguments.",
+          "description": "API Key for the selected provider. Pass this secret through the environment, never command arguments.",
           "format": "string",
           "isRequired": true,
           "isSecret": true
         },
         {
           "name": "DEEPSEEK_BASE_URL",
-          "description": "Messages API root. Requests use /v1/messages. An OpenAI chat-completions-only endpoint is not compatible.",
+          "description": "API root. Leave empty for the selected protocol's default. Use terminal setup for model discovery.",
           "format": "string",
-          "default": "https://api.deepseek.com/anthropic",
           "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "DSH_MCP_MODEL",
+          "description": "Model ID available to this API key. Terminal setup can discover the model list.",
+          "format": "string",
+          "isRequired": true,
           "isSecret": false
         }
       ]

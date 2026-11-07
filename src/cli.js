@@ -5,6 +5,10 @@ try {
     process.argv.splice(2, 1);
     const { runSetup } = await import('./setup.js');
     await runSetup();
+  } else if (process.argv[2] === 'doctor') {
+    process.argv.splice(2, 1);
+    const { runDoctor } = await import('./doctor.js');
+    await runDoctor();
   } else {
     await import('./server.js');
   }
