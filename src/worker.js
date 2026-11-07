@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { readSessionOutput } from './session-output.js';
 import { buildProviderRuntime } from './provider.js';
+import { StringDecoder } from 'node:string_decoder';
 
 const exec = promisify(execFile);
 const dsh = fileURLToPath(new URL('./lib/bin.js', import.meta.resolve('@deepseek-ai/dsh/package.json')));
@@ -15,13 +16,19 @@ const patch = fileURLToPath(new URL('../config/worker.patch.yml', import.meta.ur
 const MAX_OUTPUT = 8 * 1024 * 1024;
 
 // Wait for termination before releasing the worker; kill the process group, not just dsh.
-export function runProcess(command, { cwd, env, input, timeoutMs, signal }) {
+export function runProcess(command, { cwd, env, input, timeoutMs, signal, onEvent }) {
   return new Promise((done, reject) => {
     if (signal?.aborted) return reject(new Error('Request cancelled before launch'));
     const child = spawn(command[0], command.slice(1), {
       cwd, env, detached: true, stdio: ['pipe', 'pipe', 'pipe'], shell: false,
     });
     const chunks = [];
+    const decoder = new StringDecoder('utf8');
+    let pending = '';
+    const emitLine = (line) => {
+      if (!onEvent || !line.trim()) return;
+      try { onEvent(JSON.parse(line)); } catch { /* A display failure must not stop the worker. */ }
+    };
     let bytes = 0;
     let stderr = Buffer.alloc(0);
     let failure = null;
@@ -43,7 +50,17 @@ export function runProcess(command, { cwd, env, input, timeoutMs, signal }) {
     child.stdout.on('data', (chunk) => {
       bytes += chunk.length;
       if (bytes > MAX_OUTPUT) stop('output_limit');
-      else chunks.push(chunk);
+      else {
+        chunks.push(chunk);
+        if (onEvent) {
+          pending += decoder.write(chunk);
+          let newline;
+          while ((newline = pending.indexOf('\n')) !== -1) {
+            emitLine(pending.slice(0, newline));
+            pending = pending.slice(newline + 1);
+          }
+        }
+      }
     });
     child.stderr.on('data', (chunk) => {
       stderr = Buffer.concat([stderr, chunk]).subarray(-32768);
@@ -55,6 +72,7 @@ export function runProcess(command, { cwd, env, input, timeoutMs, signal }) {
     });
     child.on('exit', () => kill('SIGKILL'));
     child.on('close', (code, exitSignal) => {
+      if (onEvent) emitLine(pending + decoder.end());
       clearTimeout(timer);
       clearTimeout(escalation);
       signal?.removeEventListener('abort', cancel);
@@ -131,11 +149,13 @@ export function createWorker({ home, command = [process.execPath, dsh], readSess
   const redactObject = (value) => JSON.parse(JSON.stringify(value, (_name, item) => redact(item)));
   let busy = false;
   return {
-    async delegate({ project_root, task, thinking_effort, cwd = '.', permission_mode = 'read-only', session_id, timeout_seconds = 300 }, { signal } = {}) {
+    async delegate({ project_root, task, thinking_effort, cwd = '.', permission_mode = 'read-only', session_id, timeout_seconds = 300 }, { signal, onEvent } = {}) {
       if (busy) throw new Error('DeepSeek worker is busy; serialize tasks across all projects');
       busy = true;
       let before;
       let pluginDirectory;
+      const emit = (event) => { try { onEvent?.(event); } catch { /* Progress is optional. */ } };
+      let started = false;
       try {
         if (typeof project_root !== 'string' || !isAbsolute(project_root)) {
           throw new Error('project_root must be an absolute directory path');
@@ -177,10 +197,12 @@ export function createWorker({ home, command = [process.execPath, dsh], readSess
           'Do not wait for an interactive reply. The supervisor can continue this session with a later call.',
           '', task,
         ].join('\n');
+        emit({ type: 'run_start', model: providerRuntime.model, permission_mode });
+        started = true;
         const result = await runProcess([...command, ...args], {
           cwd: directory,
           env: { ...process.env, ...providerRuntime.env, DSH_HOME: home, DSH_PERMISSION_MODE: permission_mode, DSH_MCP_THINKING_EFFORT: thinking_effort },
-          input: prompt, timeoutMs: timeout_seconds * 1000, signal,
+          input: prompt, timeoutMs: timeout_seconds * 1000, signal, onEvent: emit,
         });
         if (pluginDirectory) {
           await rm(pluginDirectory, { recursive: true, force: true });
@@ -212,6 +234,8 @@ export function createWorker({ home, command = [process.execPath, dsh], readSess
               .filter((name) => before.files.get(name) !== after.files.get(name)).sort();
           } else if (before) changeWarning = 'Git repository changed during execution; inspect the workspace manually.';
         } catch (error) { changeWarning = `Cannot inspect changes: ${error.message}`; }
+        emit({ type: 'run_end', status: result.failure ?? run.status });
+        started = false;
         return {
           ...run,
           reason: run.reason == null ? run.reason : redactObject(run.reason),
@@ -226,9 +250,10 @@ export function createWorker({ home, command = [process.execPath, dsh], readSess
           project_root: root, cwd: directory, model: providerRuntime.model, protocol: providerRuntime.protocol, permission_mode,
           exit_code: result.exit_code, signal: result.signal,
           changed_files: changedFiles, git_root: before?.root ?? null,
-          change_warning: redact(changeWarning), diagnostics: redact(result.stderr),
+          change_warning: redact(changeWarning), diagnostics: result.failure || run.status !== 'completed' ? redact(result.stderr) : '',
         };
       } finally {
+        if (started) emit({ type: 'run_end', status: signal?.aborted ? 'cancelled' : 'failed' });
         try { if (pluginDirectory) await rm(pluginDirectory, { recursive: true, force: true }); }
         finally { busy = false; }
       }

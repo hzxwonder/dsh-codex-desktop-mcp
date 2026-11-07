@@ -118,15 +118,17 @@ export async function installCodex({
   codexHome = resolve(codexHome);
   skillsHome = resolve(skillsHome);
   const configPath = join(codexHome, 'config.toml');
+  const agentsPath = join(codexHome, 'AGENTS.md');
   const skillDirectory = join(skillsHome, 'deepseek-worker');
   const skillPath = join(skillDirectory, 'SKILL.md');
   const keyPath = join(home, '.env');
   const providerPath = join(home, 'settings.json');
   const directories = [codexHome, dirname(skillsHome), skillsHome, skillDirectory, home];
   for (const directory of directories) await checkDirectory(directory);
-  const [config, skill, credentials, provider, bundledSkill] = await Promise.all([
+  const [config, skill, credentials, provider, bundledSkill, agents, routing] = await Promise.all([
     readExisting(configPath), readExisting(skillPath), readExisting(keyPath), readExisting(providerPath),
     readFile(join(packageRoot, '.agents', 'skills', 'deepseek-worker', 'SKILL.md'), 'utf8'),
+    readExisting(agentsPath), readFile(join(packageRoot, 'config', 'agents.md'), 'utf8'),
   ]);
   const parsed = parseConfig(config.text);
   const args = [join(packageRoot, 'src', 'server.js'), '--dsh-home', home];
@@ -147,6 +149,7 @@ export async function installCodex({
     throw new Error('A different deepseek-worker skill already exists and cannot be safely upgraded. Back up or rename that skill before setup; existing files were not changed.');
   }
   parseConfig(nextConfig);
+  const { text: nextAgents } = managedBlock(agents.text, '<!-- BEGIN dsh-mcp -->', '<!-- END dsh-mcp -->', routing);
   const providerSettings = parseProviderSettings(provider.text);
   const previousProvider = resolveProviderSettings(providerSettings, { legacy: !providerSettings.protocol && typeof providerSettings.baseUrl === 'string' });
   const selected = resolveProviderSettings({
@@ -167,7 +170,8 @@ export async function installCodex({
   else await chmod(providerPath, 0o600);
   if (nextConfig !== config.text) await atomicWrite(configPath, nextConfig, config.mode ?? 0o644);
   if (skill.text !== bundledSkill || skill.mode === null) await atomicWrite(skillPath, bundledSkill, skill.mode ?? 0o644);
-  return { home, configPath, skillPath };
+  if (nextAgents !== agents.text) await atomicWrite(agentsPath, nextAgents, agents.mode ?? 0o644);
+  return { home, configPath, skillPath, agentsPath };
 }
 
 export async function runSetup() {
@@ -200,6 +204,7 @@ export async function runSetup() {
   const result = await installCodex({ home, ...chosen.settings, apiKey: chosen.apiKey });
   console.log(`Codex 配置: ${result.configPath}`);
   console.log(`用户 skill: ${result.skillPath}`);
+  console.log(`全局委派规则: ${result.agentsPath}`);
   console.log(`私有 API Key 文件: ${join(result.home, '.env')}`);
   console.log(`私有服务配置: ${join(result.home, 'settings.json')}`);
   console.log('正在检查 MCP 注册和工具握手...');

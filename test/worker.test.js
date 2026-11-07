@@ -207,3 +207,37 @@ test('a resumed run without a new turn cannot return a previous successful answe
   assert.equal(result.output_source, null);
   assert.match(result.session_output_error, /turn/);
 });
+
+test('NDJSON progress arrives before process exit across UTF-8 and line boundaries', async (t) => {
+  const root = await workspace(t);
+  const events = [];
+  let seen;
+  const firstEvent = new Promise((resolve) => { seen = resolve; });
+  let finished = false;
+  const pending = runProcess(nodeCommand(`
+    process.stdin.resume();
+    const line = Buffer.from(JSON.stringify({ type: 'text', text: '你好' }) + '\\n');
+    const split = line.indexOf(Buffer.from('你')) + 1;
+    process.stdout.write(line.subarray(0, split));
+    setTimeout(() => process.stdout.write(line.subarray(split)), 30);
+    setTimeout(() => process.stdout.write(JSON.stringify({ type: 'final' })), 100);
+  `), {
+    cwd: root, env: process.env, input: '', timeoutMs: 5000,
+    onEvent(event) { events.push(event); seen(); },
+  }).then((result) => { finished = true; return result; });
+  await firstEvent;
+  assert.equal(finished, false);
+  assert.deepEqual(events[0], { type: 'text', text: '你好' });
+  assert.equal((await pending).exit_code, 0);
+  assert.deepEqual(events[1], { type: 'final' }, 'last event need not have a newline');
+});
+
+test('a broken progress observer cannot fail a successful worker process', async (t) => {
+  const root = await workspace(t);
+  const result = await runProcess(nodeCommand(`process.stdin.resume(); console.log('{"type":"text","text":"ok"}');`), {
+    cwd: root, env: process.env, input: '', timeoutMs: 5000,
+    onEvent() { throw new Error('display unavailable'); },
+  });
+  assert.equal(result.exit_code, 0);
+  assert.equal(result.failure, null);
+});

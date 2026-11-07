@@ -6,6 +6,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import { createWorker } from './worker.js';
+import { createMonitor } from './monitor.js';
 import metadata from '../package.json' with { type: 'json' };
 import { buildProviderRuntime, resolveProviderSettings, parseProviderSettings } from './provider.js';
 
@@ -35,11 +36,12 @@ const providerRuntime = buildProviderRuntime({
 }, apiKey);
 
 const worker = createWorker({ home, providerRuntime });
+const monitor = createMonitor({ secret: apiKey });
 const instructions = await readFile(new URL('../config/routing.md', import.meta.url), 'utf8');
 const server = new McpServer({ name: 'dsh-mcp', version: metadata.version }, { instructions });
 server.registerTool('delegate_to_deepseek', {
   title: 'Delegate a bounded task to DeepSeek Harness',
-  description: 'Run one bounded task with the configured model through local DeepSeek Harness. Supply the absolute project_root from active Codex context or explicit user authorization. Use read-only for analysis. Select workspace-write explicitly for edits. Supply complete context and acceptance criteria. Pause other writers. Review the actual files and check the result. A completed status does not mean task acceptance.',
+  description: 'Default executor for clear, low-risk, verifiable simple code (including BFS), tests, routine documents, and mechanical edits, even small tasks. Codex retains creative discussions, research, paper writing, complex design, high-risk work, and final review. Open get_dsh_monitor for user progress without reading logs. Supply the authorized absolute project_root, explicit thinking_effort, complete context and acceptance criteria. Use read-only unless edits need workspace-write. Pause other writers; review final artifacts and checks. Completion is not acceptance.',
   inputSchema: {
     project_root: z.string().min(1).describe('Required absolute project directory from Codex context or explicit user authorization. This is the caller directory grant, not an independently verified workspace ACL.'),
     task: z.string().trim().min(1).max(65536).describe('Self-contained task, allowed files, constraints, acceptance criteria and requested verification.'),
@@ -52,7 +54,7 @@ server.registerTool('delegate_to_deepseek', {
   annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
 }, async (input, extra) => {
   try {
-    const result = await worker.delegate(input, { signal: extra.signal });
+    const result = await worker.delegate(input, { signal: extra.signal, onEvent: monitor.publish });
     return {
       content: [{ type: 'text', text: JSON.stringify(result) }],
       structuredContent: result,
@@ -62,11 +64,24 @@ server.registerTool('delegate_to_deepseek', {
     return { isError: true, content: [{ type: 'text', text: error.message }] };
   }
 });
+server.registerTool('get_dsh_monitor', {
+  title: 'Open DSH live progress',
+  description: 'Get a local browser URL for user-only live progress before delegation. Open once in the Codex sidebar with open_in_codex browser, or give the user a clickable link. Do not fetch, read, screenshot, or poll this page as an agent. No logs enter this tool result. A monitor failure does not block delegation.',
+  inputSchema: {},
+  annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+}, async () => {
+  try {
+    const result = { url: await monitor.start(), audience: 'user', scope: 'current MCP server', retention: 'current run, last 200 events, memory only' };
+    return { content: [{ type: 'text', text: JSON.stringify(result) }], structuredContent: result };
+  } catch (error) {
+    return { isError: true, content: [{ type: 'text', text: `Progress monitor unavailable: ${error.message}. Delegation is still available.` }] };
+  }
+});
 await server.connect(new StdioServerTransport());
 
 // The SDK stdio transport does not close itself on stdin EOF.
 const shutdown = () => {
-  void server.close().catch((error) => {
+  void Promise.all([server.close(), monitor.close()]).catch((error) => {
     console.error(error.message);
     process.exitCode = 1;
   });

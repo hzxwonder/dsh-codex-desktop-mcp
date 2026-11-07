@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { installCodex } from '../src/setup.js';
+import { providerFixture, sendInference } from './fixtures/provider.js';
 
 test('MCP disconnect stops an in-flight real DSH process, not just the bridge', { timeout: 30000 }, async (t) => {
   const base = await mkdtemp(join(tmpdir(), 'dsh-mcp-disconnect-'));
@@ -66,4 +67,55 @@ test('MCP disconnect stops an in-flight real DSH process, not just the bridge', 
   await client.close();
   await closed;
   assert.equal(await pending, 'connection closed');
+});
+
+test('MCP monitor shows live progress while delegation returns only its durable final result', { timeout: 30000 }, async (t) => {
+  const base = await mkdtemp(join(tmpdir(), 'dsh-mcp-progress-'));
+  const client = new Client({ name: 'progress-regression', version: '1' });
+  t.after(async () => { await client.close(); await rm(base, { recursive: true, force: true }); });
+  let release;
+  let blocked = true;
+  let requestSeen;
+  const seen = new Promise((resolve) => { requestSeen = resolve; });
+  const fixture = await providerFixture(t, (request, res) => {
+    const respond = () => sendInference(res, 'chat-completions', 'deepseek-flash', 'Verified final answer.');
+    if (!blocked || !request.body?.tools?.length) { respond(); return; }
+    release = () => { blocked = false; respond(); };
+    requestSeen();
+  });
+  const home = join(base, 'home');
+  await installCodex({
+    home, codexHome: join(base, 'codex'), skillsHome: join(base, 'skills'),
+    apiKey: 'sk-progress-fixture', protocol: 'chat-completions', model: 'deepseek-flash', baseUrl: fixture.baseUrl + '/v1',
+  });
+  const env = { ...process.env };
+  for (const key of ['DEEPSEEK_API_KEY', 'DEEPSEEK_BASE_URL', 'DSH_MCP_PROTOCOL', 'DSH_MCP_MODEL']) delete env[key];
+  const transport = new StdioClientTransport({
+    command: process.execPath, args: [fileURLToPath(new URL('../src/server.js', import.meta.url)), '--dsh-home', home], env, stderr: 'pipe',
+  });
+  transport.stderr.on('data', () => {});
+  await client.connect(transport);
+  const opened = await client.callTool({ name: 'get_dsh_monitor', arguments: {} });
+  const url = new URL(opened.structuredContent.url);
+  assert.equal(opened.structuredContent.events, undefined);
+  let finished = false;
+  const pending = client.callTool({ name: 'delegate_to_deepseek', arguments: {
+    project_root: base, task: 'Reply briefly without using tools.', thinking_effort: 'low',
+  } }).then((result) => { finished = true; return result; });
+  await seen;
+  const snapshot = await (await fetch(new URL('/events', url), {
+    headers: { Authorization: `Bearer ${url.hash.slice(1)}` },
+  })).json();
+  assert.equal(finished, false, 'progress must be visible before the provider finishes');
+  assert(snapshot.events.some(({ type }) => type === 'run_start'));
+  assert(snapshot.events.some(({ type }) => type === 'status'));
+  release();
+  const result = await pending;
+  assert.equal(result.isError, false);
+  assert.equal(result.structuredContent.answer, 'Verified final answer.');
+  assert.equal(result.structuredContent.output_source, 'session');
+  assert.equal(result.structuredContent.diagnostics, '');
+  assert(!JSON.stringify(result).includes('run_start'));
+  await client.close();
+  await assert.rejects(fetch(url));
 });

@@ -1,6 +1,6 @@
 {
   "name": "@hzxwonder/dsh-mcp",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "mcpName": "io.github.hzxwonder/dsh-mcp",
   "type": "module",
   "description": "Delegate bounded Codex tasks to DeepSeek Harness over MCP stdio.",

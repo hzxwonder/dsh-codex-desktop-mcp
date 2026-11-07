@@ -9,6 +9,18 @@ import { installCodex } from '../src/setup.js';
 
 const apiKey = 'sk-installer-test-not-a-real-credential';
 const replacementKey = 'sk-installer-test-explicit-rotation';
+const agentsBegin = '<!-- BEGIN dsh-mcp -->';
+const agentsEnd = '<!-- END dsh-mcp -->';
+
+function occurrences(text, marker) {
+  return text.split(marker).length - 1;
+}
+
+function assertSingleManagedAgentsBlock(text) {
+  assert.equal(occurrences(text, agentsBegin), 1, 'AGENTS must contain exactly one BEGIN marker');
+  assert.equal(occurrences(text, agentsEnd), 1, 'AGENTS must contain exactly one END marker');
+  assert.ok(text.indexOf(agentsBegin) < text.indexOf(agentsEnd), 'BEGIN must precede END');
+}
 
 async function profile(t) {
   const base = await mkdtemp(join(tmpdir(), 'dsh-mcp-profile-'));
@@ -86,7 +98,9 @@ test('a managed previous npm installation upgrades its untouched skill without r
   assert.notEqual(upgradedSkill, paths.oldSkill);
   assert.equal((await stat(paths.skillPath)).mode & 0o777, 0o640);
   assert.equal(await readFile(keyPath, 'utf8'), keyBefore);
-  assert.equal(await readFile(paths.agentsPath, 'utf8'), agentsBefore);
+  const agentsText = await readFile(paths.agentsPath, 'utf8');
+  assert.ok(agentsText.startsWith(agentsBefore), 'original user AGENTS text must be preserved');
+  assertSingleManagedAgentsBlock(agentsText);
   assert.equal(await readFile(paths.authPath, 'utf8'), authBefore);
   assert.deepEqual(JSON.parse(await readFile(join(paths.home, 'settings.json'), 'utf8')), {
     baseUrl: 'https://saved.example/v1', custom: { keep: true }, protocol: 'anthropic', model: 'deepseek-flash',
@@ -94,6 +108,7 @@ test('a managed previous npm installation upgrades its untouched skill without r
   await installCodex(paths);
   assert.equal(await readFile(paths.configPath, 'utf8'), configText);
   assert.equal(await readFile(paths.skillPath, 'utf8'), upgradedSkill);
+  assert.equal(await readFile(paths.agentsPath, 'utf8'), agentsText, 'repeated setup must not duplicate the managed AGENTS block');
 });
 
 for (const scenario of [
@@ -159,9 +174,11 @@ test('global setup preserves model settings, other servers and user instructions
   assert.equal(config.model_provider, 'company');
   assert.deepEqual(config.mcp_servers.other, parse(unrelated).mcp_servers.other);
   assert(config.mcp_servers.dsh.tool_timeout_sec > 900);
-  assert.equal(await readFile(paths.agentsPath, 'utf8'), prose);
+  const agentsText = await readFile(paths.agentsPath, 'utf8');
+  assert.ok(agentsText.startsWith(prose), 'user AGENTS text and whitespace must remain intact before the managed block');
+  assertSingleManagedAgentsBlock(agentsText);
   const skill = await readFile(paths.skillPath, 'utf8');
-  for (const text of [configText, skill, prose]) assert(!text.includes(apiKey));
+  for (const text of [configText, skill, agentsText]) assert(!text.includes(apiKey));
   const keyPath = join(paths.home, '.env');
   assert.equal(parseEnv(await readFile(keyPath, 'utf8')).DEEPSEEK_API_KEY, apiKey);
   assert.equal((await stat(keyPath)).mode & 0o777, 0o600);
@@ -172,14 +189,78 @@ test('global setup preserves model settings, other servers and user instructions
 test('repeated global setup preserves the saved key and does not duplicate managed configuration', async (t) => {
   const paths = await profile(t);
   await installCodex({ ...paths, apiKey });
-  const files = [paths.configPath, paths.skillPath, join(paths.home, '.env'), join(paths.home, 'settings.json')];
+  const files = [paths.configPath, paths.skillPath, join(paths.home, '.env'), join(paths.home, 'settings.json'), paths.agentsPath];
   const before = await Promise.all(files.map((path) => readFile(path, 'utf8')));
+  assertSingleManagedAgentsBlock(before[4]);
   await installCodex(paths);
   const after = await Promise.all(files.map((path) => readFile(path, 'utf8')));
   assert.deepEqual(after, before);
   assert.equal(parseEnv(after[2]).DEEPSEEK_API_KEY, apiKey);
   for (const text of after) assert(!text.includes(replacementKey));
-  await absent(paths.agentsPath);
+});
+
+test('rule updates replace one managed AGENTS block in place while preserving surrounding user text and mode', async (t) => {
+  const paths = await profile(t);
+  const routing = await readFile(new URL('../config/agents.md', import.meta.url), 'utf8');
+  const before = '# Personal rules before\n\nKeep this before the managed block.\n\n';
+  const after = '\n## Personal rules after\n\nKeep this after the managed block.\n';
+  const stale = `${before}${agentsBegin}\n## Stale DSH rules\n\nRemove this old block body.\n${agentsEnd}${after}`;
+  await mkdir(paths.codexHome);
+  await writeFile(paths.agentsPath, stale, { mode: 0o640 });
+
+  await installCodex({ ...paths, apiKey });
+  const installed = await readFile(paths.agentsPath, 'utf8');
+  assert.ok(installed.startsWith(before), 'text before the managed block must be preserved');
+  assert.ok(installed.includes('## Personal rules after'), 'text after the managed block must be preserved');
+  assert.ok(installed.includes('Keep this after the managed block.'), 'tail user text must be preserved');
+  assert.ok(!installed.includes('## Stale DSH rules'), 'stale managed body must be replaced');
+  assert.ok(installed.includes(routing.trimEnd()), 'managed body must match the packaged rules');
+  assertSingleManagedAgentsBlock(installed);
+  assert.equal((await stat(paths.agentsPath)).mode & 0o777, 0o640, 'existing AGENTS permissions must be preserved');
+
+  await installCodex(paths);
+  assert.equal(await readFile(paths.agentsPath, 'utf8'), installed, 'repeated rule update must be idempotent');
+});
+
+for (const scenario of [
+  {
+    name: 'an incomplete managed AGENTS block',
+    agents: '# Personal rules\n\n<!-- BEGIN dsh-mcp -->\n[stale without an end marker]\n',
+  },
+  {
+    name: 'duplicate managed AGENTS blocks',
+    agents: `# Personal rules\n\n${agentsBegin}\nfirst body\n${agentsEnd}\n\n${agentsBegin}\nsecond body\n${agentsEnd}\n`,
+  },
+]) {
+  test(`${scenario.name} blocks all installation writes`, async (t) => {
+    const paths = await profile(t);
+    await mkdir(paths.codexHome);
+    await writeFile(paths.agentsPath, scenario.agents, { mode: 0o640 });
+    await assert.rejects(installCodex({ ...paths, apiKey }), /Repair the incomplete or duplicate managed block/);
+    assert.equal(await readFile(paths.agentsPath, 'utf8'), scenario.agents);
+    assert.equal((await stat(paths.agentsPath)).mode & 0o777, 0o640);
+    await absent(paths.home);
+    await absent(paths.configPath);
+    await absent(paths.skillPath);
+  });
+}
+
+test('a symlink AGENTS.md blocks all installation writes', async (t) => {
+  const paths = await profile(t);
+  const target = join(paths.base, 'personal-agents.md');
+  const original = '# Personal rules\n\nKeep this symlink target untouched.\n';
+  await writeFile(target, original, { mode: 0o640 });
+  const targetMode = (await stat(target)).mode;
+  await mkdir(paths.codexHome);
+  await symlink(target, paths.agentsPath);
+
+  await assert.rejects(installCodex({ ...paths, apiKey }), /Expected a regular file/);
+  assert((await lstat(paths.agentsPath)).isSymbolicLink());
+  assert.equal(await readFile(target, 'utf8'), original);
+  assert.equal((await stat(target)).mode, targetMode);
+  await absent(paths.home);
+  await absent(paths.configPath);
+  await absent(paths.skillPath);
 });
 
 test('invalid global TOML fails before credentials or skills are created', async (t) => {

@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DSH 实时进度</title>
+<style nonce="__NONCE__">
+  :root { color-scheme: dark; --bg:#0f172a; --panel:#1b2336; --text:#f8fafc; --muted:#b2bdcc; --border:#475569; --accent:#4ade80; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:16px/1.6 system-ui,sans-serif; }
+  main { max-width:900px; margin:auto; padding:24px; }
+  header { display:flex; gap:16px; align-items:center; justify-content:space-between; flex-wrap:wrap; }
+  h1 { margin:0; font-size:24px; }
+  p { color:var(--muted); margin:8px 0 20px; }
+  #status { color:var(--accent); }
+  button { cursor:pointer; min-height:44px; padding:8px 16px; color:var(--text); background:var(--panel); border:1px solid var(--border); border-radius:8px; font:inherit; }
+  button:hover { border-color:var(--accent); }
+  button:focus-visible { outline:2px solid var(--text); outline-offset:3px; }
+  ol { list-style:none; margin:20px 0; padding:0; }
+  li { margin:12px 0; padding:16px; background:var(--panel); border:1px solid var(--border); border-radius:10px; }
+  .label { color:var(--muted); font-size:13px; }
+  pre { margin:8px 0 0; white-space:pre-wrap; overflow-wrap:anywhere; font:14px/1.65 ui-monospace,monospace; }
+  @media(max-width:480px) { main { padding:16px; } }
+</style>
+<main>
+  <header><h1>DSH 实时进度</h1><button id="pause" type="button" aria-pressed="false">暂停更新</button></header>
+  <p>执行阶段、工具调用与公开输出 · 当前任务最近 200 条记录</p>
+  <div id="status" role="status">正在连接…</div>
+  <p id="updated">等待任务开始</p>
+  <ol id="events" aria-label="执行记录"></ol>
+</main>
+<script nonce="__NONCE__">
+  const token = location.hash.slice(1);
+  const status = document.getElementById('status');
+  const updated = document.getElementById('updated');
+  const list = document.getElementById('events');
+  const pause = document.getElementById('pause');
+  let paused = false;
+  let last = -1;
+  let active = false;
+  pause.addEventListener('click', () => {
+    paused = !paused;
+    pause.textContent = paused ? '继续更新' : '暂停更新';
+    pause.setAttribute('aria-pressed', String(paused));
+    if (paused) status.textContent = '已暂停显示 · 任务继续运行';
+    else refresh();
+  });
+  async function refresh() {
+    if (paused || document.hidden || active) return;
+    active = true;
+    try {
+      const response = await fetch('/events', { headers:{ Authorization:'Bearer ' + token }, cache:'no-store' });
+      if (!response.ok) throw new Error();
+      const { events } = await response.json();
+      const latest = events.at(-1);
+      status.textContent = latest?.type === 'run_end' ? latest.message : events.length ? '运行中' : '已连接 · 等待委派任务';
+      updated.textContent = '连接更新于 ' + new Date().toLocaleTimeString();
+      if ((latest?.id ?? 0) !== last) {
+        last = latest?.id ?? 0;
+        list.replaceChildren(...events.map(event => {
+          const item = document.createElement('li');
+          const label = document.createElement('div');
+          label.className = 'label';
+          label.textContent = new Date(event.time).toLocaleTimeString() + ' · ' + event.type;
+          const text = document.createElement('pre');
+          text.textContent = event.message;
+          item.append(label, text);
+          return item;
+        }));
+      }
+    } catch { status.textContent = '连接已断开 · 请重新打开监视页'; }
+    finally { active = false; }
+  }
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
+  setInterval(refresh, 1000);
+  refresh();
+</script>
+</html>

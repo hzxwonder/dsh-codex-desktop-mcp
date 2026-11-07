@@ -3,15 +3,22 @@
 Keep the current GPT model, provider, and account.
 Every delegate_to_deepseek call needs the current authorized absolute project_root and an explicit thinking_effort from the selected model's current tool schema.
 Include both on resume. Never infer the root from the server or installation. Never default effort.
-Use read-only unless the task needs edits. Read the session answer, reason, and diagnostics before review. Follow user and project restrictions.
+Use read-only unless the task needs edits. Follow user and project restrictions.
 The full Harness runs locally with the protocol, API service, and model selected in setup.
 The configured API service receives task data and charges its own API fees.
 Never silently replace the selected model with DeepSeek Flash or a direct API call.
 
 - Use the installed `deepseek-worker` skill for eligible tasks.
-- Delegate worthwhile, bounded, low-risk tasks by default when the MCP tool is available.
-- Complete trivial tasks directly when delegation costs more than implementation.
-- Do not delegate secrets, security decisions, architecture, or problems with an unknown root cause.
+- Delegate by default when `delegate_to_deepseek` is available, the authorized project root is known, and the requirement is clear, low-risk, and verifiable.
+- Delegate these to DSH first, then review the actual artifacts and run appropriate acceptance checks: simple code (including BFS examples and short scripts), localized and well-defined bug fixes, independent tests, routine README/API usage documentation, documentation formatting or rewriting, and mechanical data processing.
+- Do not skip delegation just because a task is small.
+- Do not implement an eligible task yourself first and then delegate a duplicate implementation.
+- Codex retains these tasks directly: creative or imaginative discussion, brainstorming, research direction, a paper's core argument, method, explanation, or writing, important writing, complex architecture and multi-component coupled implementation, debugging with an unknown root cause, security, authentication, payments, and data migration, production high-risk work, and final review, decisions, or release.
+- For mixed tasks, Codex first makes the key decisions above, then delegates only the approved, independent, and mechanical subtasks.
+- When the user explicitly asks Codex to handle a task personally, or when the tool or authorization is unavailable, Codex completes the task and briefly explains why; do not expand permissions to bypass an obstacle.
+- If worker quality is inadequate, give one clear feedback continuation; if it still fails, Codex takes over instead of retrying indefinitely.
+- By default, review only the final session answer, the actual deliverables, and the content needed for acceptance.
+- Do not read raw persisted sessions, intermediate logs, or hidden thinking; when diagnosing a failure, read the minimum necessary.
 - Supply `project_root` explicitly in every call, including calls that resume a session.
 - Use the active project root unless the user explicitly authorizes a different project directory.
 - Do not infer the root from the server directory, home directory, installation, or previous calls.
@@ -42,7 +49,7 @@ Never silently replace the selected model with DeepSeek Flash or a direct API ca
 - Select `thinking_effort` again when you resume. Do not depend on the old session setting.
 - After the worker stops, MCP reads the persisted session and checks its ID and saved physical working directory.
 - Read `answer`, `output_source: "session"`, `session_id`, `session_file`, `assistant_seq`, and `turn`.
-- Read `reason`, `terminal_reason`, `session_output_error`, and `diagnostics` before reviewing actual changes.
+- When a failure needs diagnosis, read `reason`, `terminal_reason`, `session_output_error`, and `diagnostics` as needed.
 - The answer is the last committed assistant text in the latest durable turn.
 - Hidden reasoning, tool calls, and tool results are not final answers.
 - An empty latest turn returns empty text and a null assistant sequence, never an earlier successful answer.
@@ -69,7 +76,13 @@ This example assumes that the current model's schema permits `low`.
 }
 ```
 
-Global setup needs no project configuration.
+Monitor convention:
+`get_dsh_monitor` returns a local URL, not logs.
+When Codex has an `open_in_codex` browser tool, open that URL before the first delegation and use the sidebar so the user can watch the process; the agent must not fetch or read that page.
+Without a UI tool, give the user a clickable link and continue delegating; do not block the task because the monitor is unavailable.
+The monitor is a user progress view and does not support interactive approval.
+
+Global installation writes to a managed `AGENTS.md` rules block and preserves other user text.
 The installer can upgrade an owned, unchanged previous skill template.
 It preserves customized skills and skills without a previous-template reference.
 Back up those files and resolve conflicts manually before replacement.
