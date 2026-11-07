@@ -7,6 +7,8 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod';
 import { createWorker } from './worker.js';
 import { createMonitor } from './monitor.js';
+import { createProgressCards } from './progress-cards.js';
+import { registerProgressUi } from './progress-ui.js';
 import metadata from '../package.json' with { type: 'json' };
 import { buildProviderRuntime, resolveProviderSettings, parseProviderSettings } from './provider.js';
 
@@ -37,11 +39,12 @@ const providerRuntime = buildProviderRuntime({
 
 const worker = createWorker({ home, providerRuntime });
 const monitor = createMonitor({ secret: apiKey });
+const cards = createProgressCards({ secret: apiKey });
 const instructions = await readFile(new URL('../config/routing.md', import.meta.url), 'utf8');
 const server = new McpServer({ name: 'dsh-mcp', version: metadata.version }, { instructions });
 server.registerTool('delegate_to_deepseek', {
   title: 'Delegate a bounded task to DeepSeek Harness',
-  description: 'Default executor for clear, low-risk, verifiable simple code (including BFS), tests, routine documents, and mechanical edits, even small tasks. Codex retains creative discussions, research, paper writing, complex design, high-risk work, and final review. Open get_dsh_monitor for user progress without reading logs. Supply the authorized absolute project_root, explicit thinking_effort, complete context and acceptance criteria. Use read-only unless edits need workspace-write. Pause other writers; review final artifacts and checks. Completion is not acceptance.',
+  description: 'Default executor for clear, low-risk, verifiable simple code, tests, routine documents, and mechanical edits, even small tasks. Codex retains creative discussions, research, papers, complex design, high-risk work, and final review. First use show_dsh_progress for an inline card and pass progress_id. Never automatically open a sidebar or browser. Supply the authorized absolute project_root, explicit thinking_effort, context and acceptance criteria. Use read-only unless edits need workspace-write. Pause other writers; review final artifacts and checks. Completion is not acceptance.',
   inputSchema: {
     project_root: z.string().min(1).describe('Required absolute project directory from Codex context or explicit user authorization. This is the caller directory grant, not an independently verified workspace ACL.'),
     task: z.string().trim().min(1).max(65536).describe('Self-contained task, allowed files, constraints, acceptance criteria and requested verification.'),
@@ -49,24 +52,34 @@ server.registerTool('delegate_to_deepseek', {
     cwd: z.string().min(1).default('.').describe('Directory relative to project_root, or an absolute directory within project_root.'),
     permission_mode: z.enum(['read-only', 'workspace-write']).default('read-only'),
     session_id: z.string().min(1).max(256).optional().describe('Previously returned DSH session ID for scoped revision in the same cwd.'),
+    progress_id: z.string().uuid().optional().describe('Progress card returned by show_dsh_progress for this delegation. Logs remain UI-only.'),
     timeout_seconds: z.number().int().min(1).max(900).default(300),
   },
   annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
 }, async (input, extra) => {
+  let progress;
   try {
-    const result = await worker.delegate(input, { signal: extra.signal, onEvent: monitor.publish });
+    if (input.progress_id) progress = cards.attach(input.progress_id);
+    const result = await worker.delegate(input, {
+      signal: extra.signal, onEvent(event) { monitor.publish(event); progress?.publish(event); },
+    });
+    progress?.finish(result.status);
+    const modelResult = { ...result, diagnostics: '' };
     return {
-      content: [{ type: 'text', text: JSON.stringify(result) }],
-      structuredContent: result,
+      content: [{ type: 'text', text: JSON.stringify(modelResult) }],
+      structuredContent: modelResult,
+      _meta: { dshDiagnostics: result.diagnostics },
       isError: result.status !== 'completed',
     };
   } catch (error) {
+    progress?.finish(extra.signal?.aborted ? 'cancelled' : 'failed');
     return { isError: true, content: [{ type: 'text', text: error.message }] };
   }
 });
+registerProgressUi(server, cards);
 server.registerTool('get_dsh_monitor', {
   title: 'Open DSH live progress',
-  description: 'Get a local browser URL for user-only live progress before delegation. Open once in the Codex sidebar with open_in_codex browser, or give the user a clickable link. Do not fetch, read, screenshot, or poll this page as an agent. No logs enter this tool result. A monitor failure does not block delegation.',
+  description: 'Get a legacy local monitor URL only when the user explicitly requests an external monitor. Do not call this automatically and never automatically open a sidebar or browser. Prefer show_dsh_progress for an inline conversation card.',
   inputSchema: {},
   annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
 }, async () => {

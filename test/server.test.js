@@ -98,9 +98,11 @@ test('MCP monitor shows live progress while delegation returns only its durable 
   const opened = await client.callTool({ name: 'get_dsh_monitor', arguments: {} });
   const url = new URL(opened.structuredContent.url);
   assert.equal(opened.structuredContent.events, undefined);
+  const card = await client.callTool({ name: 'show_dsh_progress', arguments: {} });
+  const access = card._meta.dshProgress;
   let finished = false;
   const pending = client.callTool({ name: 'delegate_to_deepseek', arguments: {
-    project_root: base, task: 'Reply briefly without using tools.', thinking_effort: 'low',
+    project_root: base, task: 'Reply briefly without using tools.', thinking_effort: 'low', progress_id: access.progress_id,
   } }).then((result) => { finished = true; return result; });
   await seen;
   const snapshot = await (await fetch(new URL('/events', url), {
@@ -109,6 +111,10 @@ test('MCP monitor shows live progress while delegation returns only its durable 
   assert.equal(finished, false, 'progress must be visible before the provider finishes');
   assert(snapshot.events.some(({ type }) => type === 'run_start'));
   assert(snapshot.events.some(({ type }) => type === 'status'));
+  const live = await client.callTool({ name: 'read_dsh_progress', arguments: access });
+  assert.equal(live.structuredContent.status, 'running');
+  assert(live._meta.dshProgress.events.some(({ type }) => type === 'run_start'));
+  assert(!JSON.stringify({ content: live.content, structuredContent: live.structuredContent }).includes('run_start'));
   release();
   const result = await pending;
   assert.equal(result.isError, false);
@@ -116,6 +122,10 @@ test('MCP monitor shows live progress while delegation returns only its durable 
   assert.equal(result.structuredContent.output_source, 'session');
   assert.equal(result.structuredContent.diagnostics, '');
   assert(!JSON.stringify(result).includes('run_start'));
+  assert(!JSON.stringify(result).includes(access.view_token));
+  const ended = await client.callTool({ name: 'read_dsh_progress', arguments: access });
+  assert.equal(ended.structuredContent.status, 'completed');
+  assert.equal(ended._meta.dshProgress.events.at(-1).type, 'run_end');
   await client.close();
   await assert.rejects(fetch(url));
 });

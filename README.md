@@ -4,14 +4,14 @@
 
 ## 快速开始：终端 setup
 
-> 本文对应 **0.6.0**，包含用户进度监视与全局默认委派规则。
+> 本文对应 **0.7.0**，提供会话内嵌进度卡片与全局默认委派规则。
 
 需要 macOS 或 Linux、Node.js **24.9.0 或更高版本**、npm，以及支持 MCP 的 Codex 客户端。准备好所选 API 服务的密钥；ChatGPT 登录、订阅额度和 DSH GUI 登录不能替代它。
 
 在终端运行：
 
 ```sh
-npx --yes --package @hzxwonder/dsh-mcp@0.6.0 dsh-mcp setup
+npx --yes --package @hzxwonder/dsh-mcp@0.7.0 dsh-mcp setup
 ```
 
 默认全程在终端完成，不启动浏览器。首次配置按以下顺序输入：
@@ -66,13 +66,17 @@ Codex 直接主导创意讨论、复杂架构与多组件耦合实现、论文�
 
 规则指导模型选择，**不保证每次调用**，也不取消 Codex 的批准提示。项目和用户规则仍然优先。
 
-### 用户进度监视
+### 会话内嵌进度卡片
 
-`get_dsh_monitor` 返回一个用户可打开的本机 URL。Codex 在首次委派前，如果客户端提供 `open_in_codex` 的 browser 工具，应主动调用一次把该 URL 打开到侧边栏，用户即可观看执行进度；没有 UI 工具时显示可点击链接并继续委派。MCP 只能返回链接，不能强制控制 Codex 一定打开页面，也不因监视器不可用而阻塞委派。
+`show_dsh_progress` 在会话内返回一张内嵌进度卡片，并给出 `progress_id`。Codex 在委派前调用它，再把 `progress_id` 传给 `delegate_to_deepseek`；新委派和用 `session_id` 续接都分别新建卡片，不复用旧卡片。
 
-监视页只在 `127.0.0.1` 的随机端口提供，URL 片段携带本次服务器实例的临时访问令牌。它只保留当前任务最近 200 条内存事件，每条最多 8,000 字符，并展示执行阶段、工具输入/输出和公开文本；不转发隐藏 thinking、原始 prompt 或 stderr，当前配置的 API Key 会脱敏。页面没有交互审批，也没有模型日志查询工具，中间日志不会放入 `delegate_to_deepseek` 结果。MCP server 重启后旧 URL 失效。
+卡片注册 `ui://dsh/progress-v1.html`，MIME 为 `text/html;profile=mcp-app`，`preferredModelDisplayMode` 为 `inline`。卡片使用官方 MCP Apps SDK 调用 `read_dsh_progress`（`visibility: app`）刷新。日志和 `view_token` 只放在 UI 专用的 `_meta`，卡片创建与读取工具的 `content` 与 `structuredContent` 只含简短提示、任务标识和状态，不转发隐藏 thinking。模型不得调用 `read_dsh_progress`，也不得读取卡片页面或原始日志。
 
-这是上下文分离的用户视图：有同机文件或浏览器访问权限的代理在技术上可能读取该页面，因此不要把页面当作访问控制；默认约定是 Codex/agent 不读取页面，只取 `get_dsh_monitor` 返回的链接。
+若当前客户端不支持卡片，或 `show_dsh_progress` 未加载，继续正常委派并在最终报告中给出结果，不自动打开侧边栏或浏览器作为降级。`get_dsh_monitor` 仅为兼容保留，只有用户明确要求外部监视页时才调用。
+
+进度卡片按内存保存，最多 20 张；每张保留最近 200 条事件，每条最多 8,000 字符；任务结束后停止轮询。
+
+已在本机 Codex App 验证卡片在聊天正文显示并动态完成。上下文验收使用真实 Codex 后端和本地模拟模型：模型请求不含 UI 专用随机标记，进度读取工具不出现在模型工具列表中。客户端仍需支持 MCP Apps。
 
 ### Codex 必须主动选择思考强度
 
@@ -91,7 +95,7 @@ Codex 不得静默补齐缺失值，不接受 `medium` 或 `xhigh` 等别名，�
 
 ### 最小调用示例
 
-下例假设当前模型的工具 schema 包含 `high`；否则应显式选择 schema 允许的档位。
+下例假设当前模型的工具 schema 包含 `high`；否则应显式选择 schema 允许的档位。委派前先调用 `show_dsh_progress`，并把返回的 `progress_id` 一并传入。
 
 ```json
 {
@@ -125,11 +129,11 @@ Codex 从当前项目上下文或用户明确授权中取得路径。服务不�
 
 读取使用 DSH 官方的只读存储接口，支持压缩会话。官方接口可能忽略未完成的物理尾帧，只返回已验证的持久化前缀。读取需要重放会话历史，大会话的读取成本会增加。
 
-只有进程退出码为 0、DSH 最终原因为 `completed`，且成功读取的对应回合也已持久化完成，服务才报告完成。**这只表示代理回合结束，不代表任务通过验收。** Codex 检查状态、最终 `answer`、实际 diff 并执行验收；失败时按需读取原因和最少诊断。成功结果的 `diagnostics` 为空。工作器声称运行了检查，不等于主代理亲自运行了检查。
+只有进程退出码为 0、DSH 最终原因为 `completed`，且成功读取的对应回合也已持久化完成，服务才报告完成。**这只表示代理回合结束，不代表任务通过验收。** Codex 检查状态、最终 `answer`、实际 diff 并执行验收；失败时读取终止原因；原始 stderr 诊断仅保留在 UI 元数据中，模型可见的 `diagnostics` 为空。工作器声称运行了检查，不等于主代理亲自运行了检查。
 
 ### 未决问题与续接
 
-Codex 不会实时收到中间事件；用户可通过 `get_dsh_monitor` 页面观看进度。不支持途中的双向问答、交互审批、模型日志查询或单独浏览任意会话的工具，中间日志也不会进入 `delegate_to_deepseek` 结果。
+Codex 不会实时收到中间事件；用户可在支持的客户端通过内嵌进度卡片查看进度，客户端不支持卡片或 `show_dsh_progress` 未加载时只收到最终结果。不支持途中的双向问答、交互审批、模型日志查询或单独浏览任意会话的工具，中间日志也不会进入 `delegate_to_deepseek` 结果。
 
 1. DeepSeek 停止任务，在最终文本中报告未决问题。
 2. Codex 读取结果，在已有授权内决策，必要时询问用户。
@@ -169,7 +173,7 @@ npm 自动下载**真实、完整的本地 Harness 依赖**。不需要另行全
 更新已安装配置仍使用同一条全局 setup 命令，不需要逐项目操作：
 
 ```sh
-npx --yes --package @hzxwonder/dsh-mcp@0.6.0 dsh-mcp setup
+npx --yes --package @hzxwonder/dsh-mcp@0.7.0 dsh-mcp setup
 ```
 
 安装器可以更新归它管理且未被修改的旧 skill 模板。若 skill 已定制，或缺少可核对的旧模板引用，安装器保留现有文件并报告冲突。先备份，再手动合并或处理冲突，不要直接覆盖定制内容。同名但不归安装器管理的 `dsh` 配置也不会被覆盖。
@@ -192,7 +196,7 @@ npx 安装可能把服务路径记录为 npm 缓存中的绝对路径。清理�
 用同一用户、同一主机和同一个 `CODEX_HOME` 运行：
 
 ```sh
-npx --yes --package @hzxwonder/dsh-mcp@0.6.0 dsh-mcp doctor
+npx --yes --package @hzxwonder/dsh-mcp@0.7.0 dsh-mcp doctor
 ```
 
 `doctor` 打印生效配置的位置，检查 stdio 初始化及工具目录。它不发送付费模型请求，也不读取 Desktop 的项目选择记录来推断当前会话的位置。分享输出前仍应检查本机路径等隐私，不附上 `.env`、私有登录文件、完整日志或原始任务。
@@ -220,6 +224,7 @@ stdio MCP 不需要浏览器登录；客户端显示不支持 OAuth / Auth，通
 | `cwd` | `.` | 根目录内的相对目录或绝对目录。 |
 | `permission_mode` | `read-only` | 确需编辑时显式选择 `workspace-write`。 |
 | `session_id` | 无 | 续接对应 DSH 会话。 |
+| `progress_id` | 无 | `show_dsh_progress` 返回的卡片标识；每次新委派或续接都应新建卡片，日志仍只在 UI 中。 |
 | `timeout_seconds` | `300` | 整数，范围 1–900 秒。 |
 
 服务解析真实路径，拒绝 `cwd` 通过 `..` 或符号链接逃出本次根目录。一个服务器实例最多运行一个任务，包括跨项目任务。重叠调用立即报错，不后台排队。客户端超时应长于工作器超时和清理时间，安装器设为 960 秒。

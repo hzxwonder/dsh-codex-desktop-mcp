@@ -1,0 +1,74 @@
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+import { createProgressCards, progressResourceUri } from '../src/progress-cards.js';
+import { registerProgressUi } from '../src/progress-ui.js';
+
+test('cards isolate runs, require the UI token, and filter hidden or credential material', () => {
+  const cards = createProgressCards({ secret: 'sk-card-fixture' });
+  const first = cards.open();
+  const second = cards.open();
+  const run = cards.attach(first.progress_id);
+  run.publish({ type: 'run_start', model: 'fixture', permission_mode: 'read-only' });
+  run.publish({ type: 'thinking', text: 'private reasoning' });
+  run.publish({ type: 'tool_result', status: 'completed', result: 'sk-card-fixture' });
+  assert.throws(() => cards.read(first.progress_id, second.view_token), /denied/);
+  const visible = cards.read(first.progress_id, first.view_token);
+  assert.equal(visible.status, 'running');
+  assert.equal(visible.events.length, 2);
+  assert(!JSON.stringify(visible).includes('private reasoning'));
+  assert(!JSON.stringify(visible).includes('sk-card-fixture'));
+  assert.equal(cards.read(second.progress_id, second.view_token).events.length, 0);
+  run.finish('completed');
+  assert.equal(cards.read(first.progress_id, first.view_token, visible.next_seq).events.length, 1);
+  assert.throws(() => cards.attach(first.progress_id), /new progress card/);
+});
+
+test('cards bound retained records and events while protecting an active run', () => {
+  const cards = createProgressCards();
+  const active = cards.open();
+  const run = cards.attach(active.progress_id);
+  const oldest = cards.open();
+  for (let i = 0; i < 30; i++) cards.open();
+  assert.throws(() => cards.read(oldest.progress_id, oldest.view_token), /expired/);
+  for (let i = 0; i < 250; i++) run.publish({ type: 'text', text: 'x'.repeat(9000) });
+  const snapshot = cards.read(active.progress_id, active.view_token);
+  assert.equal(snapshot.events.length, 200);
+  assert(snapshot.events.every(({ message }) => message.length === 8000));
+  assert.equal(cards.read(active.progress_id, active.view_token, snapshot.next_seq).events.length, 0);
+});
+
+test('MCP inline resource and app-only reader keep tokens and logs out of public result fields', async (t) => {
+  const cards = createProgressCards();
+  const server = new McpServer({ name: 'inline-test', version: '1' });
+  const client = new Client({ name: 'inline-test-client', version: '1' });
+  registerProgressUi(server, cards);
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  t.after(async () => { await client.close(); await server.close(); });
+  await server.connect(serverTransport);
+  await client.connect(clientTransport);
+  const { tools } = await client.listTools();
+  const show = tools.find(({ name }) => name === 'show_dsh_progress');
+  const reader = tools.find(({ name }) => name === 'read_dsh_progress');
+  assert.equal(show._meta.ui.resourceUri, progressResourceUri);
+  assert.equal(show._meta['openai/ui'].preferredModelDisplayMode, 'inline');
+  assert.deepEqual(reader._meta.ui.visibility, ['app']);
+  const result = await client.callTool({ name: 'show_dsh_progress', arguments: {} });
+  const access = result._meta.dshProgress;
+  const publicText = JSON.stringify({ content: result.content, structuredContent: result.structuredContent });
+  assert(!publicText.includes(access.view_token));
+  const canary = crypto.randomUUID();
+  const run = cards.attach(access.progress_id);
+  run.publish({ type: 'tool_result', status: 'completed', result: canary });
+  const progress = await client.callTool({ name: 'read_dsh_progress', arguments: { ...access, after_seq: 0 } });
+  assert(JSON.stringify(progress._meta).includes(canary));
+  assert(!JSON.stringify({ content: progress.content, structuredContent: progress.structuredContent }).includes(canary));
+  const denied = await client.callTool({ name: 'read_dsh_progress', arguments: { ...access, view_token: 'x'.repeat(64) } });
+  assert.equal(denied.isError, true);
+  const resource = await client.readResource({ uri: progressResourceUri });
+  assert.equal(resource.contents[0].mimeType, 'text/html;profile=mcp-app');
+  assert(!resource.contents[0].text.includes('/*__APP_SCRIPT__*/'));
+  assert(!resource.contents[0].text.includes(canary));
+});

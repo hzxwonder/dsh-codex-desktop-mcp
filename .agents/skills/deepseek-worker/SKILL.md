@@ -116,6 +116,7 @@ Do not put credentials in project files, task text, commands, logs, or screensho
 Example tool arguments:
 
 This example assumes that the current model's schema permits `high`.
+Call `show_dsh_progress` first and pass its `progress_id` in the delegation.
 
 ```json
 {
@@ -162,12 +163,14 @@ They cannot attribute concurrent writes.
 A non-Git workspace can return `null` instead of a file list.
 Do not use the report as a complete audit.
 
-## Monitor
+## Progress card
 
-`get_dsh_monitor` returns a local URL, not logs.
-When Codex has an `open_in_codex` browser tool, open that URL before the first delegation and use the sidebar so the user can watch the process; the agent must not fetch or read that page.
-Without a UI tool, give the user a clickable link and continue delegating; do not block the task because the monitor is unavailable.
-The monitor is a user progress view and does not support interactive approval.
+Before each delegation, call `show_dsh_progress` and pass the returned `progress_id` to `delegate_to_deepseek`.
+Create a new card for each new delegation or session continuation.
+Logs and `view_token` stay only in UI-specific `_meta`. The card tools return only a short acknowledgement, task identifier, and status in `content` and `structuredContent`. Hidden thinking is not forwarded.
+Do not call `read_dsh_progress`, read the card page, or read raw logs.
+If the current client cannot render the card or `show_dsh_progress` is unavailable, continue the delegation and report the final result; do not fall back to automatically opening a sidebar or browser.
+`get_dsh_monitor` is retained for compatibility and called only when the user explicitly requests an external monitor page.
 
 ## Questions and continuation
 

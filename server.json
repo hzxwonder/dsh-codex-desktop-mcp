@@ -3,7 +3,7 @@
   "name": "io.github.hzxwonder/dsh-mcp",
   "title": "DeepSeek Harness for Codex",
   "description": "Run local Harness tasks through Chat Completions, Responses, or Anthropic Messages.",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "repository": {
     "url": "https://github.com/hzxwonder/dsh-mcp",
     "source": "github"
@@ -14,7 +14,7 @@
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "@hzxwonder/dsh-mcp",
-      "version": "0.6.0",
+      "version": "0.7.0",
       "runtimeHint": "npx",
       "transport": {
         "type": "stdio"

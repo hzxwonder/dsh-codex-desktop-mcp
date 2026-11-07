@@ -34,6 +34,7 @@ export function createMonitor({ secret } = {}) {
   };
   return {
     publish,
+    snapshot() { return { events: events.map((event) => ({ ...event })), sequence }; },
     async start() {
       if (!starting) starting = (async () => {
         const html = await readFile(new URL('./monitor.html', import.meta.url), 'utf8');

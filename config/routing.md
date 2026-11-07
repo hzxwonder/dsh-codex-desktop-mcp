@@ -65,6 +65,7 @@ These instructions guide delegation decisions but cannot guarantee automatic too
 Example arguments:
 
 This example assumes that the current model's schema permits `low`.
+Call `show_dsh_progress` first and pass its `progress_id` in the delegation.
 
 ```json
 {
@@ -76,11 +77,13 @@ This example assumes that the current model's schema permits `low`.
 }
 ```
 
-Monitor convention:
-`get_dsh_monitor` returns a local URL, not logs.
-When Codex has an `open_in_codex` browser tool, open that URL before the first delegation and use the sidebar so the user can watch the process; the agent must not fetch or read that page.
-Without a UI tool, give the user a clickable link and continue delegating; do not block the task because the monitor is unavailable.
-The monitor is a user progress view and does not support interactive approval.
+Progress card convention:
+Before each delegation, call `show_dsh_progress` and pass the returned `progress_id` to `delegate_to_deepseek`.
+Create a new card for each new delegation or session continuation.
+Logs and `view_token` belong only in UI-specific `_meta`. The card tools return only a short acknowledgement, task identifier, and status in `content` and `structuredContent`. Hidden thinking is not forwarded.
+The model must not call `read_dsh_progress`, read the card page, or read raw logs.
+If the current client cannot render the card or `show_dsh_progress` is not loaded, continue the delegation and report the final result; do not automatically open a sidebar or browser as a fallback.
+`get_dsh_monitor` is kept for compatibility and used only when the user explicitly asks for an external monitor page.
 
 Global installation writes to a managed `AGENTS.md` rules block and preserves other user text.
 The installer can upgrade an owned, unchanged previous skill template.

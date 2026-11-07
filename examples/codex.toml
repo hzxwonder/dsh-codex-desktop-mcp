@@ -1,11 +1,11 @@
-# Version 0.6.0. Use the pinned version below for the terminal setup flow.
-# Recommended: npx --yes --package @hzxwonder/dsh-mcp@0.6.0 dsh-mcp setup
+# Version 0.7.0. Use the pinned version below for the terminal setup flow.
+# Recommended: npx --yes --package @hzxwonder/dsh-mcp@0.7.0 dsh-mcp setup
 # Setup is terminal-only: protocol, Base URL, hidden API key, authenticated model list.
 # Select a model, review the masked summary, then run the tiny paid inference test.
 # Rerun the same setup command to edit settings or rotate the key.
 # A successful API test does not prove that the current Codex App session loaded MCP.
 # Diagnose registration and stdio tools separately:
-# npx --yes --package @hzxwonder/dsh-mcp@0.6.0 dsh-mcp doctor
+# npx --yes --package @hzxwonder/dsh-mcp@0.7.0 dsh-mcp doctor
 # Use the same host, user, and CODEX_HOME as Codex.
 # This example belongs in ~/.codex/config.toml or $CODEX_HOME/config.toml.
 # Preserve unrelated sections and current model, provider, and login settings.
@@ -22,7 +22,7 @@
 # The pinned package installs DSH locally. No global DSH installation is necessary.
 [mcp_servers.dsh]
 command = "npx"
-args = ["--yes", "--package", "@hzxwonder/dsh-mcp@0.6.0", "dsh-mcp"]
+args = ["--yes", "--package", "@hzxwonder/dsh-mcp@0.7.0", "dsh-mcp"]
 # Optional: append "--dsh-home", "/absolute/private/home" to args.
 # Without --dsh-home, the private home is ~/.dsh-mcp.
 startup_timeout_sec = 20

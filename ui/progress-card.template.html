@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>DSH 执行进度</title>
+<style>
+  :root { color-scheme:light dark; --bg:light-dark(#fff,#141922); --fg:light-dark(#172033,#f1f5f9); --muted:light-dark(#526176,#acb8c8); --line:light-dark(#d4dce6,#465268); --panel:light-dark(#f5f7fa,#1c2430); }
+  * { box-sizing:border-box; }
+  body { margin:0; color:var(--fg); background:var(--bg); font:14px/1.6 system-ui,sans-serif; }
+  main { padding:16px; }
+  header { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; }
+  h1 { margin:0; font-size:16px; }
+  p { margin:8px 0; color:var(--muted); }
+  button { cursor:pointer; min-height:36px; padding:5px 12px; border:1px solid var(--line); border-radius:7px; color:inherit; background:var(--panel); font:inherit; }
+  button:focus-visible { outline:2px solid var(--fg); outline-offset:3px; }
+  button:disabled { cursor:default; opacity:.6; }
+  #status { font-weight:600; }
+  #updated { font-size:12px; }
+  ol { margin:12px 0 0; padding:0; list-style:none; max-height:320px; overflow:auto; }
+  li { margin-top:8px; padding:10px 12px; border:1px solid var(--line); border-radius:8px; background:var(--panel); }
+  .label { font-size:12px; color:var(--muted); }
+  pre { margin:6px 0 0; white-space:pre-wrap; overflow-wrap:anywhere; font:12px/1.6 ui-monospace,monospace; }
+</style>
+<main>
+  <header><h1>DSH 执行进度</h1><button id="pause" type="button" aria-pressed="false">暂停更新</button></header>
+  <p id="status" role="status" aria-atomic="true">正在连接进度卡片…</p>
+  <p id="updated">阶段、工具调用与公开输出</p>
+  <ol id="events" aria-label="执行记录"></ol>
+</main>
+<script type="module">/*__APP_SCRIPT__*/</script>
+</html>
