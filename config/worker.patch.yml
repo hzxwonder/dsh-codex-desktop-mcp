@@ -15,6 +15,11 @@
   config: !!js JSON.parse(process.env.DSH_MCP_COMPACTION_PROFILE)
 - id: settings
   disabled: true
+- id: skill-filesystem
+  config:
+    includeDefaultRoots: false
+    # Keep already-running MCP servers compatible until their worker module reloads.
+    customSkillDirs: !!js JSON.parse(process.env.DSH_MCP_SKILL_DIRS ?? JSON.stringify([process.cwd() + '/.dsh/skills', process.env.DSH_HOME + '/skills']))
 - id: config-editor
   disabled: true
 - id: tool-plugin-manager

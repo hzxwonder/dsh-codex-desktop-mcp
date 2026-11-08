@@ -201,7 +201,8 @@ export function createWorker({ home, command = [process.execPath, dsh], readSess
         started = true;
         const result = await runProcess([...command, ...args], {
           cwd: directory,
-          env: { ...process.env, ...providerRuntime.env, DSH_HOME: home, DSH_PERMISSION_MODE: permission_mode, DSH_MCP_THINKING_EFFORT: thinking_effort },
+          env: { ...process.env, ...providerRuntime.env, DSH_HOME: home, DSH_PERMISSION_MODE: permission_mode, DSH_MCP_THINKING_EFFORT: thinking_effort,
+            DSH_MCP_SKILL_DIRS: JSON.stringify([join(root, '.dsh', 'skills'), join(home, 'skills')]) },
           input: prompt, timeoutMs: timeout_seconds * 1000, signal, onEvent: emit,
         });
         if (pluginDirectory) {

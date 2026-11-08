@@ -1,5 +1,5 @@
 import { constants } from 'node:fs';
-import { chmod, lstat, mkdir, open, readFile, rename, rm } from 'node:fs/promises';
+import { chmod, lstat, mkdir, open, readFile, rename, rm, rmdir } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -110,13 +110,19 @@ async function atomicWrite(path, text, mode) {
 export async function installCodex({
   home = defaultHome,
   codexHome = process.env.CODEX_HOME || join(homedir(), '.codex'),
-  skillsHome = join(homedir(), '.agents', 'skills'),
+  skillsHome,
+  legacySkillsHome = join(homedir(), '.agents', 'skills'),
   apiKey, baseUrl, protocol, model,
 }) {
   if (process.platform === 'win32') throw new Error('Setup requires macOS or Linux.');
   home = resolve(home);
   codexHome = resolve(codexHome);
-  skillsHome = resolve(skillsHome);
+  const migrateSharedSkill = skillsHome === undefined;
+  skillsHome = resolve(skillsHome ?? join(codexHome, 'skills'));
+  legacySkillsHome = resolve(legacySkillsHome);
+  const legacyDirectory = join(legacySkillsHome, 'deepseek-worker');
+  const legacyPath = join(legacyDirectory, 'SKILL.md');
+  const migrateLegacy = migrateSharedSkill && legacySkillsHome !== skillsHome;
   const configPath = join(codexHome, 'config.toml');
   const agentsPath = join(codexHome, 'AGENTS.md');
   const skillDirectory = join(skillsHome, 'deepseek-worker');
@@ -125,6 +131,9 @@ export async function installCodex({
   const providerPath = join(home, 'settings.json');
   const directories = [codexHome, dirname(skillsHome), skillsHome, skillDirectory, home];
   for (const directory of directories) await checkDirectory(directory);
+  if (migrateLegacy) {
+    for (const directory of [dirname(legacySkillsHome), legacySkillsHome, legacyDirectory]) await checkDirectory(directory);
+  }
   const [config, skill, credentials, provider, bundledSkill, agents, routing] = await Promise.all([
     readExisting(configPath), readExisting(skillPath), readExisting(keyPath), readExisting(providerPath),
     readFile(join(packageRoot, '.agents', 'skills', 'deepseek-worker', 'SKILL.md'), 'utf8'),
@@ -141,12 +150,17 @@ export async function installCodex({
   const previousServer = previous === null ? undefined : parseConfig(previous).mcp_servers?.dsh;
   const ownsServer = parsed.mcp_servers?.dsh && previousServer
     && isDeepStrictEqual(parsed.mcp_servers.dsh, previousServer);
+  const legacy = migrateLegacy ? await readExisting(legacyPath) : { text: '', mode: null };
   if (parsed.mcp_servers?.dsh && !ownsServer) {
     throw new Error('Codex already defines mcp_servers.dsh outside this installer’s managed block. Preserve or rename that server before setup.');
   }
   if (skill.mode !== null && skill.text !== bundledSkill
     && !(ownsServer && await matchesPreviousBundledSkill(previousServer, skill.text))) {
     throw new Error('A different deepseek-worker skill already exists and cannot be safely upgraded. Back up or rename that skill before setup; existing files were not changed.');
+  }
+  if (legacy.mode !== null && !(ownsServer && (legacy.text === bundledSkill
+    || await matchesPreviousBundledSkill(previousServer, legacy.text)))) {
+    throw new Error('The shared deepseek-worker skill cannot be safely migrated. Back up or rename that skill before setup; existing files were not changed.');
   }
   parseConfig(nextConfig);
   const { text: nextAgents } = managedBlock(agents.text, '<!-- BEGIN dsh-mcp -->', '<!-- END dsh-mcp -->', routing);
@@ -169,8 +183,13 @@ export async function installCodex({
   if (nextProvider !== provider.text) await atomicWrite(providerPath, nextProvider, 0o600);
   else await chmod(providerPath, 0o600);
   if (nextConfig !== config.text) await atomicWrite(configPath, nextConfig, config.mode ?? 0o644);
-  if (skill.text !== bundledSkill || skill.mode === null) await atomicWrite(skillPath, bundledSkill, skill.mode ?? 0o644);
+  if (skill.text !== bundledSkill || skill.mode === null) await atomicWrite(skillPath, bundledSkill, skill.mode ?? legacy.mode ?? 0o644);
   if (nextAgents !== agents.text) await atomicWrite(agentsPath, nextAgents, agents.mode ?? 0o644);
+  if (legacy.mode !== null) {
+    await rm(legacyPath);
+    try { await rmdir(legacyDirectory); }
+    catch (error) { if (error.code !== 'ENOTEMPTY') throw error; }
+  }
   return { home, configPath, skillPath, agentsPath };
 }
 

@@ -4,14 +4,14 @@
 
 ## 快速开始：终端 setup
 
-> 本文对应 **0.7.0**，提供会话内嵌进度卡片与全局默认委派规则。
+> 本文对应 **0.7.1**，提供会话内嵌进度卡片与全局默认委派规则。
 
 需要 macOS 或 Linux、Node.js **24.9.0 或更高版本**、npm，以及支持 MCP 的 Codex 客户端。准备好所选 API 服务的密钥；ChatGPT 登录、订阅额度和 DSH GUI 登录不能替代它。
 
 在终端运行：
 
 ```sh
-npx --yes --package @hzxwonder/dsh-mcp@0.7.0 dsh-mcp setup
+npx --yes --package @hzxwonder/dsh-mcp@0.7.1 dsh-mcp setup
 ```
 
 默认全程在终端完成，不启动浏览器。首次配置按以下顺序输入：
@@ -157,12 +157,16 @@ npm 自动下载**真实、完整的本地 Harness 依赖**。不需要另行全
 | 文件 | 用途 |
 | --- | --- |
 | `~/.codex/config.toml` | 注册用户级 MCP 服务器 `dsh`。 |
-| `~/.agents/skills/deepseek-worker/SKILL.md` | 安装用户级委派 skill。 |
+| `~/.codex/skills/deepseek-worker/SKILL.md` | 安装用户级委派 skill（默认路径；设置 `CODEX_HOME` 时改为 `$CODEX_HOME/skills`）。 |
 | `~/.codex/AGENTS.md` | 写入全局受管理委派规则区块，保留其他用户内容与权限；重复安装不重复。 |
 | `~/.dsh-mcp/.env` | 保存 API Key。 |
 | `~/.dsh-mcp/settings.json` | 保存协议、Base URL、模型；不保存 API Key。 |
 
 设置 `CODEX_HOME` 时，Codex 配置写入 `$CODEX_HOME/config.toml`，全局规则写入 `$CODEX_HOME/AGENTS.md`。`--home` 只改变 DSH 私有状态目录。私有目录权限为 `0700`，密钥和设置文件为 `0600`。MCP 配置不包含密钥或固定项目路径。
+
+Codex 的委派 skill 位于 `$CODEX_HOME/skills/deepseek-worker/SKILL.md`（默认 `~/.codex/skills/deepseek-worker/SKILL.md`）。安装器仅在拥有现有注册且旧 skill 未被修改时迁移 `~/.agents/skills/deepseek-worker`。已定制或冲突的旧 skill 会在任何写入前停止安装，旧目录中的其他用户文件保留。
+
+DSH 工作器只自动发现 `<project_root>/.dsh/skills` 和 `<dsh-home>/skills`（默认 `~/.dsh-mcp/skills`），不自动扫描 `.agents/skills` 或 Codex skill 目录。这是技能发现范围，不是文件读取权限边界。DSH 可按需加载自身安装的 skill（如 ponytail、asd-ste100），npm 包不包含本地用户 skill。
 
 网络路由设置保存在 `settings.json`，不写入 DSH 私有 `.env`。桥接器读取设置后，为本次 DSH 子进程构造协议、模型和网络配置。不要把真实密钥放进项目配置、命令参数、URL、日志或截图。
 
@@ -173,7 +177,7 @@ npm 自动下载**真实、完整的本地 Harness 依赖**。不需要另行全
 更新已安装配置仍使用同一条全局 setup 命令，不需要逐项目操作：
 
 ```sh
-npx --yes --package @hzxwonder/dsh-mcp@0.7.0 dsh-mcp setup
+npx --yes --package @hzxwonder/dsh-mcp@0.7.1 dsh-mcp setup
 ```
 
 安装器可以更新归它管理且未被修改的旧 skill 模板。若 skill 已定制，或缺少可核对的旧模板引用，安装器保留现有文件并报告冲突。先备份，再手动合并或处理冲突，不要直接覆盖定制内容。同名但不归安装器管理的 `dsh` 配置也不会被覆盖。
@@ -196,7 +200,7 @@ npx 安装可能把服务路径记录为 npm 缓存中的绝对路径。清理�
 用同一用户、同一主机和同一个 `CODEX_HOME` 运行：
 
 ```sh
-npx --yes --package @hzxwonder/dsh-mcp@0.7.0 dsh-mcp doctor
+npx --yes --package @hzxwonder/dsh-mcp@0.7.1 dsh-mcp doctor
 ```
 
 `doctor` 打印生效配置的位置，检查 stdio 初始化及工具目录。它不发送付费模型请求，也不读取 Desktop 的项目选择记录来推断当前会话的位置。分享输出前仍应检查本机路径等隐私，不附上 `.env`、私有登录文件、完整日志或原始任务。
