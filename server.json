@@ -1,20 +1,20 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
-  "name": "io.github.hzxwonder/dsh-mcp",
-  "title": "DeepSeek Harness for Codex",
+  "name": "io.github.hzxwonder/dsh-codex-desktop-mcp",
+  "title": "DSH Codex Desktop MCP",
   "description": "Run local Harness tasks through Chat Completions, Responses, or Anthropic Messages.",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "repository": {
-    "url": "https://github.com/hzxwonder/dsh-mcp",
+    "url": "https://github.com/hzxwonder/dsh-codex-desktop-mcp",
     "source": "github"
   },
-  "websiteUrl": "https://github.com/hzxwonder/dsh-mcp#readme",
+  "websiteUrl": "https://github.com/hzxwonder/dsh-codex-desktop-mcp#readme",
   "packages": [
     {
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
-      "identifier": "@hzxwonder/dsh-mcp",
-      "version": "0.8.0",
+      "identifier": "@hzxwonder/dsh-codex-desktop-mcp",
+      "version": "0.8.1",
       "runtimeHint": "npx",
       "transport": {
         "type": "stdio"

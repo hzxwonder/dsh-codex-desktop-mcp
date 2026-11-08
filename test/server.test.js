@@ -40,6 +40,7 @@ test('one MCP connection runs two native DSH sessions concurrently with separate
   transport.stderr.on('data', () => {});
   t.after(async () => { await client.close(); await rm(base, { recursive: true, force: true }); });
   await client.connect(transport);
+  assert.equal(client.getServerVersion().name, 'dsh-codex-desktop-mcp');
   const cards = await Promise.all(roots.map(() => client.callTool({ name: 'show_dsh_progress', arguments: {} })));
   let completed = false;
   const pending = client.callTool({ name: 'delegate_parallel_to_deepseek', arguments: { tasks: roots.map((root, i) => ({

@@ -30,8 +30,8 @@ async function executablePath(command, env, cwd = process.cwd()) {
 
 function pathHint(path) {
   return /(?:^|[/\\])(?:_npx|node_modules)(?:[/\\]|$)/.test(path)
-    ? 'The registered package/cache path is stale or incomplete. Rerun dsh-mcp setup from the current installed version to replace the old cached path.'
-    : 'Rerun dsh-mcp setup from an existing installation to refresh the absolute executable and server script paths.';
+    ? 'The registered package/cache path is stale or incomplete. Rerun dsh-codex-desktop-mcp setup from the current installed version to replace the old cached path.'
+    : 'Rerun dsh-codex-desktop-mcp setup from an existing installation to refresh the absolute executable and server script paths.';
 }
 
 // Report only diagnostic categories, never arbitrary child output, config values, or prompts.
@@ -91,11 +91,11 @@ export async function inspectRegistration({
       config = parse(await readFile(result.configPath, 'utf8'));
     } catch (error) {
       throw new Error(error.code === 'ENOENT'
-        ? 'Codex config.toml does not exist. Run dsh-mcp setup for this CODEX_HOME.'
+        ? 'Codex config.toml does not exist. Run dsh-codex-desktop-mcp setup for this CODEX_HOME.'
         : 'Codex config.toml cannot be read or parsed. Check its permissions and TOML syntax.');
     }
     const entry = config.mcp_servers?.dsh;
-    if (!entry || typeof entry !== 'object') throw new Error('No mcp_servers.dsh entry exists. Run dsh-mcp setup for this CODEX_HOME.');
+    if (!entry || typeof entry !== 'object') throw new Error('No mcp_servers.dsh entry exists. Run dsh-codex-desktop-mcp setup for this CODEX_HOME.');
     if (entry.enabled === false) throw new Error('The dsh MCP entry is disabled. Enable mcp_servers.dsh in the selected Codex config.');
     if ((entry.disabled_tools !== undefined && (!Array.isArray(entry.disabled_tools) || entry.disabled_tools.some((name) => typeof name !== 'string')))
       || (entry.enabled_tools !== undefined && (!Array.isArray(entry.enabled_tools) || entry.enabled_tools.some((name) => typeof name !== 'string')))) {
@@ -105,10 +105,10 @@ export async function inspectRegistration({
       throw new Error('Codex tool filters hide delegate_to_deepseek. Remove it from disabled_tools and include it in enabled_tools, if configured.');
     }
     if (typeof entry.command !== 'string' || !entry.command.trim() || entry.url) {
-      throw new Error('The dsh MCP entry must use a local stdio command. Rerun dsh-mcp setup.');
+      throw new Error('The dsh MCP entry must use a local stdio command. Rerun dsh-codex-desktop-mcp setup.');
     }
     if (entry.args !== undefined && (!Array.isArray(entry.args) || entry.args.some((arg) => typeof arg !== 'string'))) {
-      throw new Error('The dsh MCP command args must be an array of strings. Rerun dsh-mcp setup.');
+      throw new Error('The dsh MCP command args must be an array of strings. Rerun dsh-codex-desktop-mcp setup.');
     }
     if (entry.env !== undefined && (!entry.env || typeof entry.env !== 'object' || Array.isArray(entry.env)
       || Object.values(entry.env).some((value) => typeof value !== 'string'))) {
@@ -118,7 +118,7 @@ export async function inspectRegistration({
       throw new Error('The dsh MCP env_vars must be an array of variable names. Check the Codex config.');
     }
     if (entry.cwd !== undefined && (typeof entry.cwd !== 'string' || !isAbsolute(entry.cwd))) {
-      throw new Error('The dsh MCP cwd must be an absolute directory path. Rerun dsh-mcp setup.');
+      throw new Error('The dsh MCP cwd must be an absolute directory path. Rerun dsh-codex-desktop-mcp setup.');
     }
     const cwd = entry.cwd || process.cwd();
     try {
@@ -175,7 +175,7 @@ export async function inspectRegistration({
       if (cursor) cursors.add(cursor);
     } while (cursor);
     result.tools = [...names].sort();
-    if (!names.has(requiredTool)) throw new Error('The MCP server initialized but did not expose delegate_to_deepseek. Rerun setup using the current dsh-mcp package.');
+    if (!names.has(requiredTool)) throw new Error('The MCP server initialized but did not expose delegate_to_deepseek. Rerun setup using the current dsh-codex-desktop-mcp package.');
     if (result.codexCli?.ok === false) throw new Error(result.codexCli.error);
     result.ok = true;
     result.hints.push(reloadHint);
@@ -185,8 +185,8 @@ export async function inspectRegistration({
       ? `MCP initialize/tools discovery failed (${startupDetail(error, stderr)}).`
       : error.message;
     if (client && /did not expose|pagination cursor|Codex CLI/.test(error.message)) result.error = error.message;
-    result.hints.push('After correcting registration/startup errors, rerun dsh-mcp doctor. A saved config file alone does not prove Codex loaded the server.');
-    if (client) result.hints.push('Check the registered package dependencies and runtime version; if its npm cache was removed, rerun dsh-mcp setup from the current package.');
+    result.hints.push('After correcting registration/startup errors, rerun dsh-codex-desktop-mcp doctor. A saved config file alone does not prove Codex loaded the server.');
+    if (client) result.hints.push('Check the registered package dependencies and runtime version; if its npm cache was removed, rerun dsh-codex-desktop-mcp setup from the current package.');
   } finally {
     if (transport) await transport.close().catch(() => {});
     if (client) await client.close().catch(() => {});
@@ -202,7 +202,7 @@ export async function runDoctor() {
     },
   });
   if (values.help) {
-    console.log('Usage: dsh-mcp doctor [--codex-home PATH] [--home PATH] [--json]\n\nCheck the registered stdio command with MCP initialize and tools/list, without an inference request.\nDefaults to $CODEX_HOME/config.toml or ~/.codex/config.toml. --home checks the registered --dsh-home.\nThis does not inspect or restart the running Codex Desktop connection.');
+    console.log('Usage: dsh-codex-desktop-mcp doctor [--codex-home PATH] [--home PATH] [--json]\n\nCheck the registered stdio command with MCP initialize and tools/list, without an inference request.\nDefaults to $CODEX_HOME/config.toml or ~/.codex/config.toml. --home checks the registered --dsh-home.\nThis does not inspect or restart the running Codex Desktop connection.');
     return;
   }
   const configPath = join(resolve(values['codex-home'] || process.env.CODEX_HOME || join(homedir(), '.codex')), 'config.toml');

@@ -41,7 +41,7 @@ const worker = createWorker({ home, providerRuntime });
 const monitor = createMonitor({ secret: apiKey });
 const cards = createProgressCards({ secret: apiKey });
 const instructions = await readFile(new URL('../config/routing.md', import.meta.url), 'utf8');
-const server = new McpServer({ name: 'dsh-mcp', version: metadata.version }, { instructions });
+const server = new McpServer({ name: 'dsh-codex-desktop-mcp', version: metadata.version }, { instructions });
 const delegationInput = {
     project_root: z.string().min(1).describe('Required absolute project directory from Codex context or explicit user authorization. This is the caller directory grant, not an independently verified workspace ACL.'),
     task: z.string().trim().min(1).max(65536).describe('Goal, known facts, allowed files, local choices permitted, concrete acceptance checks, and a concise final receipt with files/results/questions.'),

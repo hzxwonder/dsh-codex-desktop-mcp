@@ -1,17 +1,17 @@
-# dsh-mcp
+# dsh-codex-desktop-mcp
 
 让 Codex 保持当前 GPT 模型、Provider 和账号登录，通过 MCP 把边界明确的任务交给**本机完整的 DeepSeek Harness（DSH）**。DSH 使用 setup 中选择的协议、API 服务和模型；Codex 主代理负责选择思考强度、读取工作器结果、审查修改和最终验收。
 
 ## 快速开始：终端 setup
 
-> 本文对应 **0.8.0**，提供完整模块委派、双 session 并行、原 session 续接与会话内嵌进度卡片。
+> 本文对应 **0.8.1**，提供完整模块委派、双 session 并行、原 session 续接与会话内嵌进度卡片。
 
 需要 macOS 或 Linux、Node.js **24.9.0 或更高版本**、npm，以及支持 MCP 的 Codex 客户端。准备好所选 API 服务的密钥；ChatGPT 登录、订阅额度和 DSH GUI 登录不能替代它。
 
 在终端运行：
 
 ```sh
-npx --yes --package @hzxwonder/dsh-mcp@0.8.0 dsh-mcp setup
+npx --yes --package @hzxwonder/dsh-codex-desktop-mcp@0.8.1 dsh-codex-desktop-mcp setup
 ```
 
 默认全程在终端完成，不启动浏览器。首次配置按以下顺序输入：
@@ -49,6 +49,8 @@ Chat Completions 和 Responses 的路径相对于表中的 Base URL；例如 Ope
 - 自定义地址不能含用户名、密码、查询参数或片段。只使用可信服务：它会收到你的密钥和任务数据。模型列表请求拒绝重定向，不把密钥转发到其他来源；模型费用由所选 API 服务收取。
 
 旧 `0.4` 私有设置若没有协议和模型字段，迁移时保留原有 **Anthropic Messages + `deepseek-flash`** 行为，不会因新默认值而改成 Chat Completions。需要切换时在 setup 摘要中显式修改。
+
+命令入口为 `dsh-codex-desktop-mcp`，也提供 `dsh-mcp` 兼容别名。已有安装继续使用配置键 `dsh`、私有目录 `~/.dsh-mcp` 与原管理标记；setup 会核对旧包模板后更新注册，保留凭据、个人规则和已有会话。
 
 ## 让 Codex 委派任务
 
@@ -167,7 +169,7 @@ Codex 不会实时收到中间事件；用户可在支持的客户端通过内�
 npm 自动下载**真实、完整的本地 Harness 依赖**。不需要另行全局安装 `dsh`，不会安装桌面 App 或下载模型权重。npm 主流程不需要克隆源码，也不要求 Git 作为安装步骤。任务本身需要的工具仍须在本机可用。
 
 ```text
-本机 Codex → MCP stdio → 本机 dsh-mcp → 本机 DSH 子进程 → 配置的 API 服务
+本机 Codex → MCP stdio → 本机 dsh-codex-desktop-mcp → 本机 DSH 子进程 → 配置的 API 服务
 ```
 
 本项目不提供远程执行服务。依赖占用较大，具体磁盘占用取决于平台、依赖布局和缓存。
@@ -197,7 +199,7 @@ DSH 工作器只自动发现 `<project_root>/.dsh/skills` 和 `<dsh-home>/skills
 更新已安装配置仍使用同一条全局 setup 命令，不需要逐项目操作：
 
 ```sh
-npx --yes --package @hzxwonder/dsh-mcp@0.8.0 dsh-mcp setup
+npx --yes --package @hzxwonder/dsh-codex-desktop-mcp@0.8.1 dsh-codex-desktop-mcp setup
 ```
 
 安装器可以更新归它管理且未被修改的旧 skill 模板。若 skill 已定制，或缺少可核对的旧模板引用，安装器保留现有文件并报告冲突。先备份，再手动合并或处理冲突，不要直接覆盖定制内容。同名但不归安装器管理的 `dsh` 配置也不会被覆盖。
@@ -220,7 +222,7 @@ npx 安装可能把服务路径记录为 npm 缓存中的绝对路径。清理�
 用同一用户、同一主机和同一个 `CODEX_HOME` 运行：
 
 ```sh
-npx --yes --package @hzxwonder/dsh-mcp@0.8.0 dsh-mcp doctor
+npx --yes --package @hzxwonder/dsh-codex-desktop-mcp@0.8.1 dsh-codex-desktop-mcp doctor
 ```
 
 `doctor` 打印生效配置的位置，检查 stdio 初始化及工具目录。它不发送付费模型请求，也不读取 Desktop 的项目选择记录来推断当前会话的位置。分享输出前仍应检查本机路径等隐私，不附上 `.env`、私有登录文件、完整日志或原始任务。
@@ -272,8 +274,8 @@ stdio MCP 不需要浏览器登录；客户端显示不支持 OAuth / Auth，通
 普通 npm 用户不需要此流程。需要修改桥接器源码时：
 
 ```sh
-git clone https://github.com/hzxwonder/dsh-mcp.git
-cd dsh-mcp
+git clone https://github.com/hzxwonder/dsh-codex-desktop-mcp.git
+cd dsh-codex-desktop-mcp
 npm ci
 npm run setup
 ```
@@ -284,7 +286,7 @@ npm run setup
 
 ## 分发与参考
 
-包页面：[npm · @hzxwonder/dsh-mcp](https://www.npmjs.com/package/@hzxwonder/dsh-mcp)。普通安装用户不需要登录 npm。
+包页面：[npm · @hzxwonder/dsh-codex-desktop-mcp](https://www.npmjs.com/package/@hzxwonder/dsh-codex-desktop-mcp)。普通安装用户不需要登录 npm。
 
 官方 MCP Registry 条目尚未登记。npm 发布不自动进入客户端商店。`server.json` 是分发元数据，不保证 Codex 原生商店提供与终端 setup 相同的输入流程；`isSecret` 只是客户端处理提示，不保证加密存储。
 

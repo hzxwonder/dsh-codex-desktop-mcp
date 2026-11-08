@@ -46,7 +46,7 @@ async function noInstallation(paths, { config = true, skill = true } = {}) {
   if (skill) await absent(paths.skillPath);
 }
 
-async function previousInstallation(t, { source = false } = {}) {
+async function previousInstallation(t, { source = false, previousName } = {}) {
   const paths = await profile(t);
   const previousRoot = source
     ? join(paths.base, 'previous source checkout')
@@ -66,7 +66,7 @@ async function previousInstallation(t, { source = false } = {}) {
     mkdir(join(paths.skillsHome, 'deepseek-worker'), { recursive: true }),
     mkdir(paths.codexHome), mkdir(paths.home),
   ]);
-  const packageName = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')).name;
+  const packageName = previousName ?? JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')).name;
   const authPath = join(paths.codexHome, 'auth.json');
   await Promise.all([
     writeFile(join(previousRoot, 'package.json'), JSON.stringify({ name: packageName, version: '0.3.0' })),
@@ -346,4 +346,28 @@ DEEPSEEK_API_KEY=${apiKey}
   assert.equal(await readFile(keyPath, 'utf8'), original);
   assert.equal(await readFile(paths.configPath, 'utf8'), configBefore);
   assert.equal(await readFile(join(paths.home, 'settings.json'), 'utf8'), providerBefore);
+});
+
+test('the legacy npm package upgrades to the renamed package and preserves existing sessions', async (t) => {
+  const paths = await previousInstallation(t, { previousName: '@hzxwonder/dsh-mcp' });
+  await mkdir(join(paths.home, 'sessions'));
+  const saved = join(paths.home, 'sessions', 'preserved-fixture');
+  await writeFile(saved, 'existing session data');
+  await installCodex(paths);
+  const registered = parse(await readFile(paths.configPath, 'utf8')).mcp_servers.dsh;
+  assert.notEqual(registered.args[0], paths.previousScript);
+  assert.equal(await readFile(paths.skillPath, 'utf8'), await readFile(new URL('../.agents/skills/deepseek-worker/SKILL.md', import.meta.url), 'utf8'));
+  assert.equal(await readFile(saved, 'utf8'), 'existing session data');
+  assert.equal(parseEnv(await readFile(join(paths.home, '.env'), 'utf8')).DEEPSEEK_API_KEY, apiKey);
+  assert((await readFile(paths.configPath, 'utf8')).includes(paths.unrelated));
+});
+
+test('the legacy package migration preserves a user-customized worker skill', async (t) => {
+  const paths = await previousInstallation(t, { previousName: '@hzxwonder/dsh-mcp' });
+  const customized = paths.oldSkill + '\nPersonal additions.\n';
+  await writeFile(paths.skillPath, customized);
+  const config = await readFile(paths.configPath, 'utf8');
+  await assert.rejects(installCodex(paths), /different deepseek-worker skill/);
+  assert.equal(await readFile(paths.skillPath, 'utf8'), customized);
+  assert.equal(await readFile(paths.configPath, 'utf8'), config);
 });

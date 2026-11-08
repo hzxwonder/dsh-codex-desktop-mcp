@@ -1,10 +1,11 @@
 {
-  "name": "@hzxwonder/dsh-mcp",
-  "version": "0.8.0",
-  "mcpName": "io.github.hzxwonder/dsh-mcp",
+  "name": "@hzxwonder/dsh-codex-desktop-mcp",
+  "version": "0.8.1",
+  "mcpName": "io.github.hzxwonder/dsh-codex-desktop-mcp",
   "type": "module",
   "description": "Delegate bounded Codex tasks to DeepSeek Harness over MCP stdio.",
   "bin": {
+    "dsh-codex-desktop-mcp": "src/cli.js",
     "dsh-mcp": "src/cli.js"
   },
   "files": [
@@ -17,11 +18,11 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/hzxwonder/dsh-mcp.git"
+    "url": "git+https://github.com/hzxwonder/dsh-codex-desktop-mcp.git"
   },
-  "homepage": "https://github.com/hzxwonder/dsh-mcp#readme",
+  "homepage": "https://github.com/hzxwonder/dsh-codex-desktop-mcp#readme",
   "bugs": {
-    "url": "https://github.com/hzxwonder/dsh-mcp/issues"
+    "url": "https://github.com/hzxwonder/dsh-codex-desktop-mcp/issues"
   },
   "publishConfig": {
     "access": "public"

@@ -221,7 +221,7 @@ test('doctor exits unsuccessfully for a different registered DSH home', async (t
 test('doctor help does not require a configuration or start a server', async (t) => {
   const paths = await profile(t);
   const { stdout } = await doctorProcess(paths, ['--help']);
-  assert.match(stdout, /Usage: dsh-mcp doctor/);
+  assert.match(stdout, /Usage: dsh-codex-desktop-mcp doctor/);
   assert.match(stdout, /does not inspect or restart/);
 });
 

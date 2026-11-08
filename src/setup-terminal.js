@@ -12,7 +12,7 @@ export function maskApiKey(value) {
 }
 
 function question(prompt, hidden = false) {
-  if (!process.stdin.isTTY) throw new Error('配置向导需要交互式终端。请在终端运行 dsh-mcp setup。');
+  if (!process.stdin.isTTY) throw new Error('配置向导需要交互式终端。请在终端运行 dsh-codex-desktop-mcp setup。');
   const output = hidden ? new Writable({ write(_chunk, _encoding, done) { done(); } }) : process.stdout;
   const input = createInterface({ input: process.stdin, output, terminal: true, historySize: 0 });
   if (hidden) process.stdout.write(prompt);

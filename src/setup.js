@@ -88,8 +88,11 @@ async function matchesPreviousBundledSkill(server, skillText) {
       inspect(script),
     ]);
     const name = JSON.parse(currentPackage.text).name;
+    const previousName = JSON.parse(previousPackage.text).name;
+    const compatible = previousName === name || (name === '@hzxwonder/dsh-codex-desktop-mcp'
+      && previousName === '@hzxwonder/dsh-mcp');
     return typeof name === 'string' && name.length > 0
-      && JSON.parse(previousPackage.text).name === name
+      && compatible
       && scriptInfo?.isFile() === true
       && previousSkill.mode !== null && previousSkill.text === skillText;
   } catch {
@@ -199,13 +202,13 @@ export async function runSetup() {
     help: { type: 'boolean', default: false },
   } });
   if (values.help) {
-    console.log('用法: dsh-mcp setup [--home /private/dsh-home]');
+    console.log('用法: dsh-codex-desktop-mcp setup [--home /private/dsh-home]');
     console.log('纯终端配置：协议 → Base URL → API Key → 探测并选择模型。');
     console.log('再次运行可逐项修改现有配置；连接测试通过后才保存并注册 MCP。');
-    console.log('诊断 Codex 注册和工具握手: dsh-mcp doctor');
+    console.log('诊断 Codex 注册和工具握手: dsh-codex-desktop-mcp doctor');
     return;
   }
-  if (!process.stdin.isTTY) throw new Error('配置向导需要交互式终端。请在终端运行 dsh-mcp setup。');
+  if (!process.stdin.isTTY) throw new Error('配置向导需要交互式终端。请在终端运行 dsh-codex-desktop-mcp setup。');
   const home = resolve(values.home);
   await checkDirectory(home);
   const credentials = await readExisting(join(home, '.env'));
@@ -232,7 +235,7 @@ export async function runSetup() {
     console.error('API 连接通过，配置也已保存，但 MCP 加载检查失败。');
     for (const hint of health.hints ?? []) console.error(hint);
     if (health.error) console.error(health.error);
-    throw new Error('请运行 dsh-mcp doctor 查看注册路径和启动状态；不能据此认为 Codex 已显示该工具。');
+    throw new Error('请运行 dsh-codex-desktop-mcp doctor 查看注册路径和启动状态；不能据此认为 Codex 已显示该工具。');
   }
   console.log(`MCP 握手成功，工具: ${health.tools.join(', ')}`);
   console.log('如果已打开的 Codex 仍未显示，请完整退出并重新打开 Codex Desktop，而不只是新开标签。');
