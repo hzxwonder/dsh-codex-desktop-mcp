@@ -117,15 +117,66 @@ test('file changes include edits to already-dirty files, new files and deletions
   assert.deepEqual(result.changed_files, ['deleted.txt', 'modified.txt', 'new\nname.txt']);
 });
 
-test('concurrent calls are refused; timeout stops the worker and releases the slot', async (t) => {
+test('two isolated runs overlap, the limit is bounded, and timeout releases slots', async (t) => {
   const base = await workspace(t);
-  const roots = [join(base, 'first'), join(base, 'second')];
+  const roots = [join(base, 'first'), join(base, 'second'), join(base, 'third')];
   await Promise.all(roots.map((root) => mkdir(root)));
   const worker = createWorker({ home: join(base, 'home'), command: nodeCommand('process.stdin.resume(); setInterval(() => {}, 1000);') });
-  const first = worker.delegate({ project_root: roots[0], task: 'wait', thinking_effort: 'low', timeout_seconds: 0.1 });
-  await assert.rejects(worker.delegate({ project_root: roots[1], task: 'overlap', thinking_effort: 'low' }), /busy/);
+  const started = [];
+  const runs = roots.slice(0, 2).map((root) => {
+    let ready;
+    started.push(new Promise((resolve) => { ready = resolve; }));
+    return worker.delegate({ project_root: root, task: 'wait', thinking_effort: 'low', permission_mode: 'workspace-write', timeout_seconds: 0.5 }, {
+      onEvent(event) { if (event.type === 'run_start') ready(); },
+    });
+  });
+  await Promise.all(started);
+  await assert.rejects(worker.delegate({ project_root: roots[2], task: 'third', thinking_effort: 'low' }), /concurrency limit/);
+  assert.deepEqual((await Promise.all(runs)).map((run) => run.status), ['timed_out', 'timed_out']);
+  assert.equal((await worker.delegate({ project_root: roots[2], task: 'again', thinking_effort: 'low', timeout_seconds: 0.05 })).status, 'timed_out');
+});
+
+test('writer conflicts include aliases, nested roots, and sibling directories in one Git repository', async (t) => {
+  const base = await workspace(t);
+  const root = join(base, 'repo');
+  await mkdir(join(root, 'a'), { recursive: true });
+  await mkdir(join(root, 'b'));
+  await exec('git', ['init', '-q'], { cwd: root });
+  const alias = join(base, 'alias');
+  await symlink(root, alias);
+  const worker = createWorker({ home: join(base, 'home'), command: nodeCommand('process.stdin.resume(); setInterval(() => {}, 1000);') });
+  let ready;
+  const started = new Promise((resolve) => { ready = resolve; });
+  const first = worker.delegate({ project_root: root, cwd: 'a', task: 'wait', thinking_effort: 'low', permission_mode: 'workspace-write', timeout_seconds: 0.5 }, {
+    onEvent(event) { if (event.type === 'run_start') ready(); },
+  });
+  await started;
+  for (const project_root of [alias, join(root, 'a'), join(root, 'b')]) {
+    await assert.rejects(worker.delegate({ project_root, task: 'read', thinking_effort: 'low' }), /Workspace conflict/);
+  }
   assert.equal((await first).status, 'timed_out');
-  assert.equal((await worker.delegate({ project_root: roots[1], task: 'again', thinking_effort: 'low', timeout_seconds: 0.1 })).status, 'timed_out');
+});
+
+test('readers can overlap but the same session cannot resume concurrently; cancellation is isolated', async (t) => {
+  const root = await workspace(t);
+  const worker = createWorker({ home: join(root, 'home'), command: nodeCommand('process.stdin.resume(); setInterval(() => {}, 1000);') });
+  const controller = new AbortController();
+  let ready;
+  const started = new Promise((resolve) => { ready = resolve; });
+  const first = worker.delegate({ project_root: root, task: 'read', session_id: 'same-session', thinking_effort: 'low', timeout_seconds: 2 }, {
+    signal: controller.signal, onEvent(event) { if (event.type === 'run_start') ready(); },
+  });
+  await started;
+  await assert.rejects(worker.delegate({ project_root: root, task: 'resume', session_id: 'same-session', thinking_effort: 'low' }), /session is already running/);
+  let secondReady;
+  const secondStarted = new Promise((resolve) => { secondReady = resolve; });
+  const second = worker.delegate({ project_root: root, task: 'read separately', session_id: 'other-session', thinking_effort: 'low', timeout_seconds: 0.5 }, {
+    onEvent(event) { if (event.type === 'run_start') secondReady(); },
+  });
+  await secondStarted;
+  controller.abort();
+  assert.equal((await first).status, 'cancelled');
+  assert.equal((await second).status, 'timed_out');
 });
 
 test('cancellation kills descendants even when they ignore SIGTERM', async (t) => {

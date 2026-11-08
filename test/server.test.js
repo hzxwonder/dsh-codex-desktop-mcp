@@ -10,6 +10,71 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { installCodex } from '../src/setup.js';
 import { providerFixture, sendInference } from './fixtures/provider.js';
 
+test('one MCP connection runs two native DSH sessions concurrently with separate cards', { timeout: 45000 }, async (t) => {
+  const base = await mkdtemp(join(tmpdir(), 'dsh-mcp-parallel-'));
+  const roots = [join(base, 'a'), join(base, 'b')];
+  await Promise.all(roots.map((root) => mkdir(root)));
+  let seenBoth;
+  const both = new Promise((resolve) => { seenBoth = resolve; });
+  const held = [];
+  const fixture = await providerFixture(t, async (request, res) => {
+    if (!request.body?.tools?.length) {
+      sendInference(res, 'chat-completions', 'deepseek-flash', 'Auxiliary response.');
+      return;
+    }
+    if (held.length >= 2) {
+      sendInference(res, 'chat-completions', 'deepseek-flash', 'Surviving receipt.');
+      return;
+    }
+    held.push(res);
+    if (held.length === 2) seenBoth();
+  });
+  const home = join(base, 'home');
+  await installCodex({ home, codexHome: join(base, 'codex'), skillsHome: join(base, 'skills'),
+    apiKey: 'sk-concurrency-fixture', protocol: 'chat-completions', model: 'deepseek-flash', baseUrl: fixture.baseUrl + '/v1' });
+  const env = { ...process.env };
+  for (const key of ['DEEPSEEK_API_KEY', 'DEEPSEEK_BASE_URL', 'DSH_MCP_PROTOCOL', 'DSH_MCP_MODEL']) delete env[key];
+  const client = new Client({ name: 'parallel-regression', version: '1' });
+  const transport = new StdioClientTransport({ command: process.execPath,
+    args: [fileURLToPath(new URL('../src/server.js', import.meta.url)), '--dsh-home', home], env, stderr: 'pipe' });
+  transport.stderr.on('data', () => {});
+  t.after(async () => { await client.close(); await rm(base, { recursive: true, force: true }); });
+  await client.connect(transport);
+  const cards = await Promise.all(roots.map(() => client.callTool({ name: 'show_dsh_progress', arguments: {} })));
+  let completed = false;
+  const pending = client.callTool({ name: 'delegate_parallel_to_deepseek', arguments: { tasks: roots.map((root, i) => ({
+    project_root: root, task: 'Reply without tools.', thinking_effort: 'low', permission_mode: 'workspace-write',
+    progress_id: cards[i].structuredContent.progress_id,
+  })) } }).then((result) => { completed = true; return result; });
+  await both;
+  assert.equal(completed, false, 'both model requests must be in flight before either returns');
+  held.forEach((res, i) => sendInference(res, 'chat-completions', 'deepseek-flash', `Parallel receipt ${i}.`));
+  const batch = await pending;
+  const results = batch.structuredContent.results;
+  assert.equal(batch.isError, false);
+  assert.deepEqual(results.map((result) => result.index), [0, 1]);
+  assert(results.every((result) => !result.isError && result.result.status === 'completed'));
+  assert.equal(new Set(results.map((result) => result.result.session_id)).size, 2);
+  assert.deepEqual(results.map((result) => result.result.answer).sort(), ['Parallel receipt 0.', 'Parallel receipt 1.']);
+  for (const card of cards) {
+    const state = await client.callTool({ name: 'read_dsh_progress', arguments: card._meta.dshProgress });
+    assert.equal(state.structuredContent.status, 'completed');
+    const texts = state._meta.dshProgress.events.filter((event) => event.type === 'text').map((event) => event.message).join('');
+    assert(texts.includes('Parallel receipt'));
+    assert(!(texts.includes('Parallel receipt 0.') && texts.includes('Parallel receipt 1.')), 'cards must not mix sessions');
+    assert(!JSON.stringify({ content: state.content, structuredContent: state.structuredContent }).includes('Parallel receipt'));
+  }
+  const partial = await client.callTool({ name: 'delegate_parallel_to_deepseek', arguments: { tasks: [
+    { project_root: join(base, 'missing'), task: 'Read.', thinking_effort: 'low' },
+    { project_root: roots[0], task: 'Reply without tools.', thinking_effort: 'low' },
+  ] } });
+  assert.equal(partial.isError, true);
+  assert.equal(partial.structuredContent.results.length, 2, 'all outcomes must remain available after one rejection');
+  assert.equal(partial.structuredContent.results[0].isError, true);
+  assert.equal(partial.structuredContent.results[1].isError, false);
+  assert.equal(partial.structuredContent.results[1].result.answer, 'Surviving receipt.');
+});
+
 test('MCP disconnect stops an in-flight real DSH process, not just the bridge', { timeout: 30000 }, async (t) => {
   const base = await mkdtemp(join(tmpdir(), 'dsh-mcp-disconnect-'));
   const root = join(base, 'workspace');

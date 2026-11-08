@@ -1,6 +1,6 @@
 {
   "name": "@hzxwonder/dsh-mcp",
-  "version": "0.7.2",
+  "version": "0.8.0",
   "mcpName": "io.github.hzxwonder/dsh-mcp",
   "type": "module",
   "description": "Delegate bounded Codex tasks to DeepSeek Harness over MCP stdio.",
@@ -10,6 +10,7 @@
   "files": [
     "src/",
     "config/",
+    "evals/",
     ".agents/skills/deepseek-worker/SKILL.md",
     "server.json",
     "README.md"

@@ -42,10 +42,7 @@ const monitor = createMonitor({ secret: apiKey });
 const cards = createProgressCards({ secret: apiKey });
 const instructions = await readFile(new URL('../config/routing.md', import.meta.url), 'utf8');
 const server = new McpServer({ name: 'dsh-mcp', version: metadata.version }, { instructions });
-server.registerTool('delegate_to_deepseek', {
-  title: 'Delegate a bounded task to DeepSeek Harness',
-  description: 'Execute bounded work that benefits from local investigation, reasoning or implementation choices. Codex retains instant edits, creative/aesthetic/important/complex/high-risk work and review. Supply a clear acceptance contract. Show an inline card first. Continue related work with session_id; a fresh progress_id is only a new card.',
-  inputSchema: {
+const delegationInput = {
     project_root: z.string().min(1).describe('Required absolute project directory from Codex context or explicit user authorization. This is the caller directory grant, not an independently verified workspace ACL.'),
     task: z.string().trim().min(1).max(65536).describe('Goal, known facts, allowed files, local choices permitted, concrete acceptance checks, and a concise final receipt with files/results/questions.'),
     thinking_effort: z.enum(providerRuntime.thinkingEfforts).describe('Required model-supported DSH reasoning effort. Choose explicitly for every call and resume; unsupported levels are rejected, never silently clamped.'),
@@ -54,9 +51,8 @@ server.registerTool('delegate_to_deepseek', {
     session_id: z.string().min(1).max(256).optional().describe('Previously returned DSH session ID for scoped revision in the same cwd.'),
     progress_id: z.string().uuid().optional().describe('Progress card returned by show_dsh_progress for this delegation. Logs remain UI-only.'),
     timeout_seconds: z.number().int().min(1).max(900).default(300),
-  },
-  annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
-}, async (input, extra) => {
+};
+async function delegateTask(input, extra) {
   let progress;
   try {
     if (input.progress_id) progress = cards.attach(input.progress_id);
@@ -75,6 +71,28 @@ server.registerTool('delegate_to_deepseek', {
     progress?.finish(extra.signal?.aborted ? 'cancelled' : 'failed');
     return { isError: true, content: [{ type: 'text', text: error.message }] };
   }
+}
+const delegationAnnotations = { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true };
+server.registerTool('delegate_to_deepseek', {
+  title: 'Delegate a bounded task to DeepSeek Harness',
+  description: 'Implement a cohesive engineering deliverable against settled interfaces and acceptance checks. Codex retains research/creative/high-risk decisions, integration and review. Show a card first. Resume related work with session_id and the same root/cwd. Use delegate_parallel_to_deepseek for two independent isolated tasks.',
+  inputSchema: delegationInput,
+  annotations: delegationAnnotations,
+}, delegateTask);
+server.registerTool('delegate_parallel_to_deepseek', {
+  title: 'Delegate two independent tasks in parallel',
+  description: 'Run exactly two independent DSH sessions concurrently in one tool call. Freeze shared interfaces first. Writers need isolated project copies and distinct project_root values. Show a separate inline card for each task. Inspect both indexed results, including partial failures. Corrections retain each original session_id/root/cwd.',
+  inputSchema: { tasks: z.array(z.object(delegationInput)).length(2) },
+  annotations: delegationAnnotations,
+}, async ({ tasks }, extra) => {
+  const outcomes = await Promise.allSettled(tasks.map((task) => delegateTask(task, extra)));
+  const results = outcomes.map((outcome, index) => {
+    const result = outcome.status === 'fulfilled' ? outcome.value : null;
+    return { index, isError: !result || !!result.isError,
+      result: result?.structuredContent ?? { status: 'failed', error: result?.content?.[0]?.text ?? 'Delegation failed' } };
+  });
+  return { content: [{ type: 'text', text: JSON.stringify({ results }) }], structuredContent: { results },
+    isError: results.some((item) => item.isError) };
 });
 registerProgressUi(server, cards);
 server.registerTool('get_dsh_monitor', {
