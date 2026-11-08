@@ -18,10 +18,7 @@ export function createMonitor({ secret } = {}) {
     let message;
     switch (event.type) {
       case 'run_start': events.length = 0; message = `Started · ${event.model} · ${event.permission_mode}`; break;
-      case 'status':
-        if (!['turn_start', 'step_start', 'step_end', 'turn_end'].includes(event.phase)) return;
-        message = `${event.phase}${Number.isInteger(event.step) ? ` · step ${event.step}` : ''}`;
-        break;
+      case 'status': return; // Structural lifecycle phases are internal, not user progress.
       case 'text': message = event.text; break;
       case 'tool_call': message = `${event.tool}\n${JSON.stringify(event.input, null, 2)}`; break;
       case 'tool_result': message = `${event.status}\n${event.result ?? ''}`; break;

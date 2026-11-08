@@ -44,10 +44,10 @@ const instructions = await readFile(new URL('../config/routing.md', import.meta.
 const server = new McpServer({ name: 'dsh-mcp', version: metadata.version }, { instructions });
 server.registerTool('delegate_to_deepseek', {
   title: 'Delegate a bounded task to DeepSeek Harness',
-  description: 'Default executor for clear, low-risk, verifiable simple code, tests, routine documents, and mechanical edits, even small tasks. Codex retains creative discussions, research, papers, complex design, high-risk work, and final review. First use show_dsh_progress for an inline card and pass progress_id. Never automatically open a sidebar or browser. Supply the authorized absolute project_root, explicit thinking_effort, context and acceptance criteria. Use read-only unless edits need workspace-write. Pause other writers; review final artifacts and checks. Completion is not acceptance.',
+  description: 'Execute bounded work that benefits from local investigation, reasoning or implementation choices. Codex retains instant edits, creative/aesthetic/important/complex/high-risk work and review. Supply a clear acceptance contract. Show an inline card first. Continue related work with session_id; a fresh progress_id is only a new card.',
   inputSchema: {
     project_root: z.string().min(1).describe('Required absolute project directory from Codex context or explicit user authorization. This is the caller directory grant, not an independently verified workspace ACL.'),
-    task: z.string().trim().min(1).max(65536).describe('Self-contained task, allowed files, constraints, acceptance criteria and requested verification.'),
+    task: z.string().trim().min(1).max(65536).describe('Goal, known facts, allowed files, local choices permitted, concrete acceptance checks, and a concise final receipt with files/results/questions.'),
     thinking_effort: z.enum(providerRuntime.thinkingEfforts).describe('Required model-supported DSH reasoning effort. Choose explicitly for every call and resume; unsupported levels are rejected, never silently clamped.'),
     cwd: z.string().min(1).default('.').describe('Directory relative to project_root, or an absolute directory within project_root.'),
     permission_mode: z.enum(['read-only', 'workspace-write']).default('read-only'),

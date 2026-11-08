@@ -59,6 +59,20 @@ test('user projection filters hidden material, redacts credentials, and resets b
   assert(next.events[0].id > lastId, 'browser can distinguish replacement runs');
 });
 
+test('structural lifecycle status events stay out while public text is preserved', async (t) => {
+  const { monitor, snapshot } = await monitorFor(t);
+  monitor.publish({ type: 'run_start', model: 'fixture', permission_mode: 'read-only' });
+  for (const phase of ['turn_start', 'step_start', 'step_end', 'turn_end']) {
+    monitor.publish({ type: 'status', phase, step: 3 });
+  }
+  monitor.publish({ type: 'text', text: 'literal turn_end and step3 stay' });
+  monitor.publish({ type: 'run_end', status: 'completed' });
+  const { events } = await snapshot();
+  assert.deepEqual(events.map(({ type }) => type), ['run_start', 'text', 'run_end']);
+  assert(events.some(({ type, message }) => type === 'text' && message === 'literal turn_end and step3 stay'));
+  assert(!JSON.stringify(events).includes('step 3'));
+});
+
 test('progress retention and event size are bounded and close invalidates the URL', async (t) => {
   const { monitor, snapshot, url } = await monitorFor(t);
   for (let i = 0; i < 250; i++) monitor.publish({ type: 'text', text: 'x'.repeat(9000) });

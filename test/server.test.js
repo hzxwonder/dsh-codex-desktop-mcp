@@ -110,7 +110,7 @@ test('MCP monitor shows live progress while delegation returns only its durable 
   })).json();
   assert.equal(finished, false, 'progress must be visible before the provider finishes');
   assert(snapshot.events.some(({ type }) => type === 'run_start'));
-  assert(snapshot.events.some(({ type }) => type === 'status'));
+  assert(!snapshot.events.some(({ type }) => type === 'status'));
   const live = await client.callTool({ name: 'read_dsh_progress', arguments: access });
   assert.equal(live.structuredContent.status, 'running');
   assert(live._meta.dshProgress.events.some(({ type }) => type === 'run_start'));

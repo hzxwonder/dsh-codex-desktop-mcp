@@ -4,14 +4,14 @@
 
 ## 快速开始：终端 setup
 
-> 本文对应 **0.7.1**，提供会话内嵌进度卡片与全局默认委派规则。
+> 本文对应 **0.7.2**，提供会话内嵌进度卡片与全局默认委派规则。
 
 需要 macOS 或 Linux、Node.js **24.9.0 或更高版本**、npm，以及支持 MCP 的 Codex 客户端。准备好所选 API 服务的密钥；ChatGPT 登录、订阅额度和 DSH GUI 登录不能替代它。
 
 在终端运行：
 
 ```sh
-npx --yes --package @hzxwonder/dsh-mcp@0.7.1 dsh-mcp setup
+npx --yes --package @hzxwonder/dsh-mcp@0.7.2 dsh-mcp setup
 ```
 
 默认全程在终端完成，不启动浏览器。首次配置按以下顺序输入：
@@ -60,9 +60,15 @@ Chat Completions 和 Responses 的路径相对于表中的 Base URL；例如 Ope
 
 > $deepseek-worker 把这个独立测试任务交给 DeepSeek。你选择合适的思考强度，并负责读取结果、审查实际修改和最终验收。
 
-默认把简单代码（含 BFS/短脚本）、独立测试、常规文档、格式化与机械修改，以及原因明确、范围局部的修复交给 DSH 先执行；任务小也不跳过委派。Codex 负责定义范围与验收，审阅最终答案、实际产物和相关检查。
+以委派收益划分工作：Codex 直接完成可立即可靠输出、无需探索的小任务（如明显修改、极短标准示例、已有命令即可完成的处理），也负责创意、审美、研究方向、论文与重要写作、复杂耦合实现、高风险决策、发布与验收。
 
-Codex 直接主导创意讨论、复杂架构与多组件耦合实现、论文核心论证与重要写作、安全/鉴权/支付/数据迁移、根因未知的调试、生产高风险工作，以及最终决策、发布与验收。混合任务先由 Codex 做关键决策，只委派其中独立、机械的子任务。
+DSH 负责目标与验收清楚、需要一定阅读、思考或局部探索，且委派具有明确收益的任务，例如理解一个小模块、处理多种边界条件、排查范围受控的非关键缺陷。混合任务由 Codex 确定关键方向，再委派适合的部分；不按“代码/文档”或文件数量机械分配。
+
+Codex 为 DSH 构建自包含的任务契约：目标、已知事实、文件范围、允许探索和决定的内容、验收用例、最终回执。影响结果的需求缺口应先报告，由 Codex 解决后在同一 DSH 会话续接。
+
+同一范围、同一验收标准下的代码、测试与说明可以合并为一次委派，避免按文件拆成多次调用。Codex 保留决策与验收，DSH 返回文件路径及简短检查证据；已有检查仍有效时不重复执行。
+
+DSH 推理需要访问配置的模型 API。“不要联网”也约束该调用；“不要网页检索”仅限制检索，不能据此推断所有外部模型 API 均被禁止。工具或授权不可用时，Codex 简要说明后直接完成允许的工作。
 
 规则指导模型选择，**不保证每次调用**，也不取消 Codex 的批准提示。项目和用户规则仍然优先。
 
@@ -71,6 +77,8 @@ Codex 直接主导创意讨论、复杂架构与多组件耦合实现、论文�
 `show_dsh_progress` 在会话内返回一张内嵌进度卡片，并给出 `progress_id`。Codex 在委派前调用它，再把 `progress_id` 传给 `delegate_to_deepseek`；新委派和用 `session_id` 续接都分别新建卡片，不复用旧卡片。
 
 卡片注册 `ui://dsh/progress-v1.html`，MIME 为 `text/html;profile=mcp-app`，`preferredModelDisplayMode` 为 `inline`。卡片使用官方 MCP Apps SDK 调用 `read_dsh_progress`（`visibility: app`）刷新。日志和 `view_token` 只放在 UI 专用的 `_meta`，卡片创建与读取工具的 `content` 与 `structuredContent` 只含简短提示、任务标识和状态，不转发隐藏 thinking。模型不得调用 `read_dsh_progress`，也不得读取卡片页面或原始日志。
+
+卡片只展示任务开始、公开文本、工具调用、工具结果与任务结束；执行引擎的步骤和回合状态仅用于内部处理。外层聊天的滚动位置由宿主控制，卡片更新不会新增聊天消息。目前所用 MCP Apps 接口没有独立的聊天滚动方法；[ChatGPT 的滚动选项](https://developers.openai.com/plugins/reference)绑定在发送后续消息的接口上。卡片保持仅在 UI 中更新进度。
 
 若当前客户端不支持卡片，或 `show_dsh_progress` 未加载，继续正常委派并在最终报告中给出结果，不自动打开侧边栏或浏览器作为降级。`get_dsh_monitor` 仅为兼容保留，只有用户明确要求外部监视页时才调用。
 
@@ -84,7 +92,7 @@ Codex 直接主导创意讨论、复杂架构与多组件耦合实现、论文�
 
 | 候选值 | 在当前模型支持时的选择依据 |
 | --- | --- |
-| `low` | 机械修改、简单文档或明确的样板任务。 |
+| `low` | 边界明确、思考负担较低的受控任务。 |
 | `high` | 边界明确，但需要推理的实现或测试任务。 |
 | `off` | 明确决定不使用思考；非推理模型按工具 schema 选择。 |
 | `max` | 额外推理成本有明确理由时才选择。 |
@@ -140,6 +148,8 @@ Codex 不会实时收到中间事件；用户可在支持的客户端通过内�
 3. 上次调用返回后，Codex 用返回的 `session_id`、相同 `project_root` 和相同实际 `cwd` 续接。
 4. 新调用仍须显式选择 `thinking_effort`，并提供完整续接指令和权限。
 
+每轮新建的 `progress_id` 仅标识进度卡片；相关任务继续传入原 `session_id`。可用返回的相同会话标识与文件、递增的 `turn` 和 `assistant_seq`，以及保留的对话约定共同验收 resume。
+
 这是多轮会话续接，不是实时对话。`--approval-policy never` 拒绝需要人工批准的操作，不是自动批准。
 
 ## 本地依赖与配置
@@ -177,7 +187,7 @@ DSH 工作器只自动发现 `<project_root>/.dsh/skills` 和 `<dsh-home>/skills
 更新已安装配置仍使用同一条全局 setup 命令，不需要逐项目操作：
 
 ```sh
-npx --yes --package @hzxwonder/dsh-mcp@0.7.1 dsh-mcp setup
+npx --yes --package @hzxwonder/dsh-mcp@0.7.2 dsh-mcp setup
 ```
 
 安装器可以更新归它管理且未被修改的旧 skill 模板。若 skill 已定制，或缺少可核对的旧模板引用，安装器保留现有文件并报告冲突。先备份，再手动合并或处理冲突，不要直接覆盖定制内容。同名但不归安装器管理的 `dsh` 配置也不会被覆盖。
@@ -200,7 +210,7 @@ npx 安装可能把服务路径记录为 npm 缓存中的绝对路径。清理�
 用同一用户、同一主机和同一个 `CODEX_HOME` 运行：
 
 ```sh
-npx --yes --package @hzxwonder/dsh-mcp@0.7.1 dsh-mcp doctor
+npx --yes --package @hzxwonder/dsh-mcp@0.7.2 dsh-mcp doctor
 ```
 
 `doctor` 打印生效配置的位置，检查 stdio 初始化及工具目录。它不发送付费模型请求，也不读取 Desktop 的项目选择记录来推断当前会话的位置。分享输出前仍应检查本机路径等隐私，不附上 `.env`、私有登录文件、完整日志或原始任务。

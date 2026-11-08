@@ -39,6 +39,7 @@ async function refresh() {
     }
     const progress = result._meta.dshProgress;
     for (const event of progress.events) {
+      if (event.type === 'status') continue; // Older MCP connections can still emit lifecycle markers.
       const row = document.createElement('li');
       const label = document.createElement('div');
       label.className = 'label';
